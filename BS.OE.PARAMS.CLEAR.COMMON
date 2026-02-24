@@ -1,0 +1,77 @@
+      PROGRAM BS.OE.PARAMS.CLEAR.COMMON
+      PROGRAM.NAME = "BS.OE.PARAMS.CLEAR.COMMON"
+
+*********************************************************************
+* Description
+* -----------------------------
+* Clear named common used in order entry
+* for branch specific settings
+*********************************************************************
+*
+* Author       : marka
+* Date Written : 31/01/02
+*
+* Job #   Date   Inits Comments
+* ===== ======== ===== ========
+*  7452                Original Version
+* 11264 03/09/02 delse Changes for National sales
+* 11328 05/12/02 ashbr Message of the day changes
+* 11468 01/04/03 delse Trade customer billing mods
+* 11556 08/07/03 mpear Branch Forced UOM flag
+* 11664 05/12/03 delse CPS Print Prices on COLLECT/DELIVER notes
+* 11545 05/05/04 delse Release 4 - Add check for Major/Sub group test
+*                                  for 'Forced'
+* 12022r1 07/07/04 delse Allow for 'Job' on order line
+* 11545r9 28/01/05 delse 'Temp' product allow PO inhibit
+*********************************************************************
+
+      INCLUDE DG-INCLUDES TCSTANDARD
+
+      EQU TRUE TO 1
+      EQU FALSE TO 0
+      EQU NULL TO ""
+      EQU DLIM TO '*'
+      EQU EOL TO CLEOL
+      EQU EOS TO CLEOS
+
+      INCLUDE INCLUDES BS.OE.PARAMS.COMMON
+
+*********************************************************************
+MAIN.PROG:
+
+      MAT OEPC.LOCAL.BRN.DETAIL.REC = ""
+      MAT OEPC.TERMWORK.REC = ""
+      MAT BRANCH.PARAMS.BRANCH.REC = ""
+
+      OEPC.MAX.STOCK.ADJ.PARAMS = ""
+      OEPC.LIMITED.ADJUSTMENT.MODE = ""
+
+* The next three fields must NEVER be cleared; Reset by 'BS.OE.ORD.CONTROL'
+*     OEPC.NATIONAL.SALES.ENTRY = ""     ; * 11264
+*     OEPC.SHARED.DIST.ENTRY = ""        ; * 11264
+*     OEPC.REMOTE.ORIGINAL.BRANCH = ""   ; * 11264
+      OEPC.REMOTE.QUOTE.OR.PARKED = ""   ; * 11264
+      OEPC.ALLOW.ORIG.BRN.REMOTES.ACCESS = ""      ; * 12040r1
+      OEPC.ACTIVE.MARGIN = ""
+      OEPC.GLOBAL.KEYLINE.DISCOUNT = ""
+      OEPC.PROCESS.TICKET.LIST = ""
+      OEPC.ADJUST.ADDRESS.LIST = ""
+** 11328 ashbr
+      OEPC.MSG.OF.THE.DAY = ""
+** 11328 End
+      OEPC.TRADE.DIRECT.BILLING = ""     ; * 11468
+      OEPC.FORCE.UOM.FLG = ""            ; * 11556
+      OEPC.FORCE.UOM.RANGES = ""         ; * 11545r4
+      OEPC.CPS.PRICE.TICKET = ""         ; * 11664
+      OEPC.APPLY.ORD.TO.LINES = ""       ; * 12022r1
+      OEPC.DEFAULT.JOB.NO = ""           ; * 12022r1
+
+      OEPC.TEMP.PROD.ALLOW.PO.OR = ""    ; * 11545r9
+
+      RETURN
+
+*********************************************************************
+      INCLUDE INCLUDES TRANS.BOUNDS
+*********************************************************************
+   END
+*********************************************************************

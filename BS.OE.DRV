@@ -1,0 +1,563 @@
+      SUBROUTINE BS.OE.DRV (HDR.KEY,ORDER.MODE,INIT.COMMON,CLEAR.COMMONS.ON.ENTRY,CLEAR.COMMONS.ON.EXIT,CASH.SPLIT.INDEX,SP1)
+
+      PROGRAM.NAME = "BS.OE.DRV"
+*********************************************************************
+* Description
+* Driver program for the main one order entry routine.
+*
+*********************************************************************
+*
+* Author       :MPEAR
+* Date Written :21/01/02
+*
+*  Job #    Date   Inits Comments
+* ======= ======== ===== ========
+* 14793r08 20/02/12 brrob Create POs from Find Stock
+* 14463r99 16/02/12 LMATH Bug fix for control to reach PROG.END
+* 15094r03 30/04/13 wallj Include Business Rules Pricing (BRP) flag in MPP
+*                         condition.
+* 15338r21 07/07/15 brrob Clean and unpick
+*                         PRB0004264 - Duplicate Ticket Numbers
+* 15401r07 23/10/15 brrob PRB0004264 - Duplicate Ticket Numbers - correction
+* 15367r22 07/01/16 connp PRB0004264 - Duplicate tickets rework of common clear down trigger
+*                         added new passed in variables to control the common clear down.
+* 15513r26 07/03/17 vagre Retain outstanding delivery date on cash split ticket
+*                         for RRP branches.
+* 15655r04 11/01/21 sdobb Call routine DELIV.MAN.IS.PRODUCT.A.DVY.CHARGE
+*                         to populate delivery charges
+* 15655r   18/03/21 lneal SCP-1859 remove previous delivery charge changes
+*********************************************************************
+*
+* HDR.KEY                         Program who is calling this one, which
+*                                 determines the screen options displayed
+*
+* ORDER.MODE                      Mode that order entry is to run
+*                                 'DESPATCH'
+*                                 'NATIONAL.ENTRY'
+*                                 'SHARED.DIST.ENTRY'
+*                                 'NATIONAL.SALES.ENQ'
+*                                 'INVOICE.PRICE.ADJUST'
+*
+* INIT.COMMON                     TRUE= Skip CALL to BS.OE.ORD.CONTROL!
+*                                 i.e. just invoke COMMON initialisation
+*
+* CLEAR.COMMONS.ON.ENTRY         TRUE - will ensure that the main commons for
+*                                 ticket entry are cleared at the start of this program.  Initally to be set by
+*                                 Initally to be set by BS.OE.MAIN.DRV.
+*                                 Null or unassigned will have no effect.
+*
+* CLEAR.COMMONS.ON.EXIT           TRUE - will ensure that the main commons for
+*                                 ticket entry are cleared on exit from this program.
+*                                 Initally to be set by BS.OE.MAIN.DRV, Null or unassigned will have no effect.
+*
+* SPAREn                          Spares
+*
+*********************************************************************
+
+      INCLUDE DG-INCLUDES TCSTANDARD
+
+      INCLUDE INCLUDES BS.OE.TICKET.COMMON
+      INCLUDE INCLUDES BS.OE.PARAMS.COMMON
+      INCLUDE INCLUDES BS.OE.USER.COMMON
+      INCLUDE INCLUDES EQU.ORDER.HEADER.REC
+      INCLUDE INCLUDES QUOTE.COMMON
+      INCLUDE INCLUDES GETPRICE.COMMON
+      INCLUDE INCLUDES BS.OE.PO.TO.BRN.COMMON
+      CALL BS.OE.PO.TO.BRN.CLEAR.COMMON
+      CALL BS.OE.PARAMS.CLEAR.COMMON
+      CALL BS.OE.TICKET.CLEAR.COMMON
+      CALL BS.OE.USER.CLEAR.COMMON
+      CALL CM.CLEAR.GETPRICE
+      SALE.TYPE = ''
+
+***********
+* EQUATES *
+***********
+
+      EQU TRUE TO 1
+      EQU FALSE TO 0
+
+************
+* INCLUDES *
+************
+
+      INCLUDE INCLUDES EQU.TERMWORK.REC
+      INCLUDE INCLUDES EQU.BRN.DETAIL.DIM
+      INCLUDE INCLUDES EQU.BRANCH.PARAMS.BRANCH.REC
+      INCLUDE INCLUDES EQU.PG.PRIVILEGES.DIM
+      INCLUDE INCLUDES EQU.PG.PARAMETERS.DIM
+
+**************
+* FILE OPENS *
+**************
+      ACCOUNT.NAME = OCONV(@WHO,'MCU')
+      ERR = ''
+
+      INCLUDE INCLUDES OPEN.FILE.TERMWORK
+      INCLUDE INCLUDES OPEN.FILE.SY.PARAMS
+      INCLUDE INCLUDES OPEN.FILE.BRN.DETAIL
+      INCLUDE INCLUDES OPEN.FILE.STOCK.PARAMS
+      INCLUDE INCLUDES OPEN.FILE.BRANCH.PARAMS
+      INCLUDE INCLUDES OPEN.FILE.VAT.DETAIL
+      INCLUDE INCLUDES OPEN.FILE.PG.PRIVILEGES
+      INCLUDE INCLUDES OPEN.FILE.PG.PARAMETERS
+
+      IF ERR NE '' THEN
+         FATAL.ERROR.MSG = "CANNOT OPEN FILES ":ERR
+         GOSUB FATAL.ERROR
+      END
+
+************
+*READ FILES*
+************
+
+      IF UNASSIGNED(CLEAR.COMMONS.ON.ENTRY) THEN
+         CLEAR.COMMONS.ON.ENTRY = FALSE
+      END
+      IF UNASSIGNED(CLEAR.COMMONS.ON.EXIT) THEN
+         CLEAR.COMMONS.ON.EXIT = TRUE
+      END
+
+      IF (CLEAR.COMMONS.ON.ENTRY = TRUE) THEN
+         GOSUB INIT.REST.OF.COMMONS.ON.WAY.IN
+      END
+
+      ERROR.CODE = 0
+      ERROR.MSG = ''
+
+      READ SY.SYSTEM.REC FROM SY.PARAMS.FV,"SY.SYSTEM" THEN
+         PORT.MASK = "R%":SY.SYSTEM.REC<1>
+
+         IF SYSTEM(25) THEN
+            PORT = @USER0
+            IF NOT(PORT) THEN PORT = "unknown"
+         END ELSE
+            PORT = SYSTEM(18) PORT.MASK
+         END
+
+         MATREAD TERMWORK.REC FROM TERMWORK.FV,PORT ELSE
+            FATAL.ERROR.MSG = "CANNOT READ ":PORT:" FROM TERMWORK FILE"
+            GOSUB FATAL.ERROR
+         END
+
+      END ELSE
+
+         FATAL.ERROR.MSG = PROGRAM.NAME :" CANNOT FIND SY.SYSTEM RECORD ON SY.PARAMS FILE"
+         GOSUB FATAL.ERROR
+
+      END
+
+      MATREAD TERMWORK.REC FROM TERMWORK.FV,PORT ELSE
+         FATAL.ERROR.MSG = "CANNOT READ ":PORT:" FROM TERMWORK FILE"
+         GOSUB FATAL.ERROR
+      END
+      MATREAD BRN.DETAIL.REC FROM BRN.DETAIL.FV, TRM.BRN.CODE ELSE
+         FATAL.ERROR.MSG = "CANNOT READ FILE BRN-DETAIL FOR RECORD ":TRM.BRN.CODE
+         GOSUB FATAL.ERROR
+      END
+      MAT OEPC.LOCAL.BRN.DETAIL.REC = MAT BRN.DETAIL.REC
+      MAT OEPC.TERMWORK.REC = MAT TERMWORK.REC
+
+      COMM.BOPTB.FROM = 'TEA'
+      COMM.BOPTB.BRAND = BRN.BRAND[2,1]
+
+      CALL BS.CHECK.FORWARD.ORDER.STATUS(BRN.BRAND[2,1],TRM.BRN.CODE,FORWARD.ORDER.ENABLED,ERROR.MSG,'','','','','')
+
+      OETC.BRN.FEEDER.STATUS = BRN.FEEDER.STATUS
+      OETC.IBT.SUPER.BRANCH = FALSE
+      OETC.IBT.OR.ICT = ""
+
+      * populate max stock adj params
+      READ OEPC.MAX.STOCK.ADJ.PARAMS FROM STOCK.PARAMS.FV, 'MAX.STOCK.ADJ.PARAMETERS' ELSE
+         FATAL.ERROR.MSG = "CANNOT READ MAX.STOCK.ADJ.PARAMETERS FROM STOCK-PARAMS FILE"
+         GOSUB FATAL.ERROR
+      END
+
+      * populate min deposit percent for payments
+      READ OEPC.MIN.DEPOSIT.% FROM STOCK.PARAMS.FV, "MINIMUM.CASH.DEPOSIT.%" ELSE
+         OEPC.MIN.DEPOSIT.% = 3300
+      END
+
+      * populate std vat rate for payments
+      READV OEPC.STD.VAT.RATE FROM VAT.DETAIL.FV, '02', 1 ELSE
+         OEPC.STD.VAT.RATE = 0
+      END
+
+      * set online card transaction flag
+      OEPC.ONLINE.CARD = (BRN.TP.CARD.PROCESS<1,1> # '' AND BRN.TP.CARD.PROCESS<1,1> # 'N')
+
+      OEPC.ACTIVE.MARGIN = TRUE
+
+** enable global keyline discount flag
+      OEPC.GLOBAL.KEYLINE.DISCOUNT = FALSE
+      READV ENABLE.KEYLINE.DISCOUNT FROM SY.PARAMS.FV, "BS.ENABLE.KEYLINE.DISCOUNT", 1 THEN
+         IF (ENABLE.KEYLINE.DISCOUNT = "YES") THEN
+            OEPC.GLOBAL.KEYLINE.DISCOUNT = TRUE
+         END
+      END
+
+** set BRANCH (getprice variable)
+      BRANCH = TRM.BRN.CODE
+
+** london surcharge
+      CALL BS.OE.SURCHARGE
+
+      IF OEPC.NATIONAL.SALES.ENTRY OR OEPC.SHARED.DIST.ENTRY THEN
+
+         REMOTE.BRANCH = OEPC.REMOTE.ORIGINAL.BRANCH
+         * for remotes, hold flg if orig brn has full access
+         * to receiving branch e.g. raising P.O etc. The flag for the receiving branch is held in
+         * BRN.DETAIL.REC which is in the common.
+         IF OEPC.SHARED.DIST.ENTRY THEN
+            READV ALLOW.ORIG.BRN.REMOTES.ACCESS FROM BRN.DETAIL.FV, REMOTE.BRANCH,128 THEN
+               IF BRN.ALLOW.ORIG.BRN.REMOTES.ACCESS = "Y" THEN
+                  OEPC.ALLOW.ORIG.BRN.REMOTES.ACCESS = ALLOW.ORIG.BRN.REMOTES.ACCESS
+               END ELSE
+                  OEPC.ALLOW.ORIG.BRN.REMOTES.ACCESS = ''
+               END
+            END
+         END
+      END ELSE
+         REMOTE.BRANCH = ''
+      END
+      * read in branch params and set up print queues
+      CALL BS.OE.PRINT.SETUP(ERROR.CODE,ERROR.MSG,REMOTE.BRANCH,'','')
+
+      IF ERROR.CODE THEN
+         CALL BS.OE.SHOW.ERROR(ERROR.CODE,ERROR.MSG,"BS.OE.PRINT.SETUP")
+      END
+      GPC.REMOTE.ORIGINAL.BRANCH = REMOTE.BRANCH
+
+** set delivery codes
+      DELIV.CHARGE.CODES = ''
+
+      READ DELIVERY.CHARGES FROM SY.PARAMS.FV,"DELIVERY.CHARGES" ELSE
+         DELIVERY.CHARGES = ''
+      END
+      
+      DELIV.CHARGE.CODES = DELIVERY.CHARGES<2>
+      IF DELIVERY.CHARGES<4> # '' THEN
+         IF DELIV.CHARGE.CODES # '' THEN
+            DELIV.CHARGE.CODES := VM: DELIVERY.CHARGES<4>
+         END ELSE
+            DELIV.CHARGE.CODES = DELIVERY.CHARGES<4>
+         END
+      END
+      OEPC.DELIV.CHARGE.CODES = DELIV.CHARGE.CODES
+
+      LOCATE TRM.BRN.CODE IN DELIVERY.CHARGES<3> SETTING POS THEN
+         OEPC.BRN.DELIV.CHARGE.CODE = DELIVERY.CHARGES<4,POS>
+      END ELSE
+         LOCATE BRN.REG.CODE IN DELIVERY.CHARGES<1> SETTING POS THEN
+            OEPC.BRN.DELIV.CHARGE.CODE = DELIVERY.CHARGES<2,POS>
+         END ELSE
+            OEPC.BRN.DELIV.CHARGE.CODE = ''
+         END
+      END
+
+** Adjusting the customer name on a Keyline/Atkins cash sale
+      READ BS.ADJUST.ADDRESS FROM SY.PARAMS.FV,'BS.ADJUST.ADDRESS' ELSE
+         BS.ADJUST.ADDRESS = ''
+      END
+      OEPC.ADJUST.ADDRESS.LIST = ''
+
+      NO.OF.GCC.TYPES = DCOUNT(BS.ADJUST.ADDRESS,AM)
+      FOR I = 1 TO NO.OF.GCC.TYPES
+         IF I = 1 THEN
+            OEPC.ADJUST.ADDRESS.LIST = BS.ADJUST.ADDRESS<I>
+         END ELSE
+            OEPC.ADJUST.ADDRESS.LIST := VM:BS.ADJUST.ADDRESS<I>
+         END
+      NEXT I
+
+* Reads the BRANCH-PARAMS-BRANCH file and display the message based on
+* date range
+      DATE.TODAY = DATE()
+      READ BRANCH.DETAIL.REC FROM BRANCH.PARAMS.FV,TRM.BRN.CODE THEN
+         IF (DATE.TODAY >= BRANCH.DETAIL.REC<137,1> AND DATE.TODAY <= BRANCH.DETAIL.REC<137,2>) THEN
+            OEPC.MSG.OF.THE.DAY = BRANCH.DETAIL.REC<138>
+         END ELSE
+* Check whether record is available else set OEPC.MSG.OF.THE.DAY to NULL.
+            READ MESSAGE.OF.THE.DAY FROM SY.PARAMS.FV, 'MSG.OF.THE.DAY' THEN
+               OEPC.MSG.OF.THE.DAY = MESSAGE.OF.THE.DAY<BRN.REG.CODE>
+            END ELSE
+               OEPC.MSG.OF.THE.DAY = ''
+            END
+         END
+      END ELSE
+         BRANCH.DETAIL.REC = ''
+* Check whether record is available else set OEPC.MSG.OF.THE.DAY to NULL.
+         READ MESSAGE.OF.THE.DAY FROM SY.PARAMS.FV, 'MSG.OF.THE.DAY' THEN
+            OEPC.MSG.OF.THE.DAY = MESSAGE.OF.THE.DAY<BRN.REG.CODE>
+         END ELSE
+            OEPC.MSG.OF.THE.DAY = ''
+         END
+      END
+
+      IF BRN.FORCED.UOM THEN
+         OEPC.FORCE.UOM.FLG = "Y"
+         OEPC.FORCE.UOM.RANGES = BRN.FORCED.UOM.RANGES
+      END
+
+* Set 'Forced' delivery charge line
+      OETC.FORCE.DEL.CHARGE = ""
+      READ FORCE.DELIVERY.CHARGES.REC FROM SY.PARAMS.FV,"FORCE.DELIVERY.CHARGES" ELSE
+         FORCE.DELIVERY.CHARGES.REC = ""
+      END
+
+* Only process if parameter found
+      IF FORCE.DELIVERY.CHARGES.REC # '' THEN
+         LOCATE BRN.REG.CODE IN FORCE.DELIVERY.CHARGES.REC<1> SETTING XPOS THEN
+            LOCATE TRM.BRN.CODE IN FORCE.DELIVERY.CHARGES.REC<2> SETTING XPOS ELSE
+               OETC.FORCE.DEL.CHARGE = TRUE
+            END
+         END ELSE
+            LOCATE TRM.BRN.CODE IN FORCE.DELIVERY.CHARGES.REC<3> SETTING XPOS THEN
+               OETC.FORCE.DEL.CHARGE = TRUE
+            END
+         END
+      END
+
+      OETC.LINKED.CASH.SALES = ""
+      OETC.MAX.CASH.PAYMENT = ""
+      READ MAX.CASH.PARAM FROM SY.PARAMS.FV,"MAXIMUM.CASH.PAYMENT" THEN
+         OETC.MAX.CASH.PAYMENT = MAX.CASH.PARAM<2>
+         IF MAX.CASH.PARAM<3> # '' THEN
+            LOCATE TRM.BRN.CODE IN MAX.CASH.PARAM<3> SETTING XPOS THEN
+               OETC.MAX.CASH.PAYMENT = MAX.CASH.PARAM<4,XPOS>
+            END
+         END
+      END
+
+      *** Check to see if Business Pricing Rules Branch ***
+      IS.BRP.ACTIVE = "N"
+      BRP.ERROR = ""
+      BRP.ERROR.MESSAGE = ""
+      CALL BS.BRP.IS.BRP.ACTIVE(BRANCH,"","",IS.BRP.ACTIVE,"",BRP.ERROR,BRP.ERROR.MESSAGE,"","","","","")
+
+************
+*SET.PARAMS*
+************
+* find out user access
+      CALL ACCESS.AUTH(TRM.AUTH.ID,'FOC.AUTH',OEUC.ALLOWED.TO.FOC.AUTH)
+      CALL ACCESS.AUTH(TRM.AUTH.ID,'DELIVERY.AUTH.LIST',OEUC.ALLOWED.TO.AUTH)
+      CALL ACCESS.AUTH(TRM.AUTH.ID,'REPRINT.COD',OEUC.ALLOWED.TO.REPRINT.COD)
+      CALL ACCESS.AUTH(TRM.AUTH.ID,'REPRINT.DELIVERY',OEUC.ALLOWED.TO.REPRINT.DELIVERY)
+      CALL ACCESS.AUTH(TRM.AUTH.ID,'REPRINT.INVOICE',OEUC.ALLOWED.TO.REPRINT.INVOICE)
+      CALL ACCESS.AUTH(TRM.AUTH.ID,'REPRINT.WORKSLIP',OEUC.ALLOWED.TO.REPRINT.WORKSLIP)
+
+      * set up view or amend costs
+      *** If branch is MPP flagged, do not show or allow access to cost ***
+      IM.A.MANAGER = FALSE
+      LOCATE TRM.CURR.USER IN BRN.MAN.USER.ID<1> SETTING FIRES THEN
+         IM.A.MANAGER = TRUE
+      END
+      LOCATE TRM.CURR.USER IN BRN.ASS.MGR.USER.ID<1> SETTING FIRES THEN
+         IM.A.MANAGER = TRUE
+      END
+      IF (BRN.USE.OPTIMISED.PRICES OR IS.BRP.ACTIVE = "Y") AND NOT(IM.A.MANAGER) AND NOT(OEPC.REMOTE.ORIGINAL.BRANCH) THEN
+         MATREAD PG.PRIVILEGES.REC FROM PG.PRIVILEGES.FV, BRANCH ELSE MAT PG.PRIVILEGES.REC = ""
+         LOCATE UPCASE(TRM.CURR.USER) IN PG.PV.COST.USER<1> SETTING EXIST.POS THEN
+            IF PG.PV.DISP.ONLY<1,EXIST.POS> = "Y" THEN
+               OEUC.VIEW.OR.AMEND.COST.LEVEL = 1
+            END ELSE
+               OEUC.VIEW.OR.AMEND.COST.LEVEL = 3
+            END
+         END ELSE
+* Check whether record is found in PG-PARAMETERS file
+            USER = TRM.CURR.USER
+            PG.PARAMS.KEY = "US|":USER:"*":BRN.BRAND[2,1]
+* Read the file PG-PARAMETERS whose key starts with only "US"
+            MATREAD PG.PARAMETERS.REC FROM PG.PARAMETERS.FV,PG.PARAMS.KEY ELSE
+               MAT PG.PARAMETERS.REC = ''
+            END
+            IF PG.SUPER.USER = "Y" THEN
+               OEUC.VIEW.OR.AMEND.COST.LEVEL = 3
+            END ELSE
+               OEUC.VIEW.OR.AMEND.COST.LEVEL = 0
+            END
+         END
+         OEUC.DISPLAY.COST.LEVEL = ""
+      END ELSE
+         CALL BS.COST.ACCESS(TRM.AUTH.ID,OEUC.VIEW.OR.AMEND.COST.LEVEL,OEUC.DISPLAY.COST.LEVEL,'','','','','')
+      END
+
+      IF UNASSIGNED(INIT.COMMON) THEN INIT.COMMON = ""
+      IF UNASSIGNED(CASH.SPLIT.INDEX) THEN CASH.SPLIT.INDEX = 0
+      IF NOT(INIT.COMMON) THEN
+         CALL BS.OE.ORD.CONTROL(HDR.KEY,ORDER.MODE,CASH.SPLIT.INDEX,"","","","")
+      END
+
+      CALL BS.OE.PO.TO.BRN.CLEAR.COMMON
+      COMM.BOPTB.FROM = ''
+      COMM.BOPTB.BRAND = ''
+
+************
+* PROG.END *
+************
+
+      IF ORDER.MODE # 'INVOICE.PRICE.ADJUST' THEN
+         CALL BS.OE.PARAMS.CLEAR.COMMON
+         CALL BS.OE.TICKET.CLEAR.COMMON
+         CALL BS.OE.USER.CLEAR.COMMON
+         CALL CM.CLEAR.GETPRICE
+
+         IF (CLEAR.COMMONS.ON.EXIT = TRUE) THEN
+            GOSUB INIT.REST.OF.COMMONS.ON.WAY.OUT
+         END
+      END ELSE
+         GPC.REMOTE.ORIGINAL.BRANCH = ''
+      END
+
+      RETURN
+
+**********************************************************************
+*******************************
+INIT.REST.OF.COMMONS.ON.WAY.IN:
+*******************************
+
+* The following commons were not initialised in the relevant 'CLEAR' subroutines
+
+* For BS.OE.PARAMS.COMMON:-
+      OEPC.AUDIT.PRINT.TYPE = ''
+      OEPC.DONT.DISPLAY.ERROR = ''
+      OEPC.INVOICE.PRICE.ADJUST = ''
+      OEPC.ONLINE.CARD = ''
+      OEPC.REMOTE.GET.OUT = ''
+      OEPC.SEAGULL.OMR.SPECIAL = ''
+
+* For BS.OE.TICKET.COMMON:-
+      OETC.CARD.STATUS = ''
+      OETC.CONNAUGHT.WS.VALIDATION = ''
+      OETC.DELETED.MCP.LINE.FLAG = ''
+      OETC.DISPLAY.VOUCHER.OPTION = ''
+      OETC.EFFICIENCY.DISCOUNT = ''
+      OETC.FIXED.PRICE.DATE = ''
+      OETC.IND.HOLD = ''
+      OETC.LUMP.DISP.LINE = ''
+      OETC.OMC.LINE.TO.AMEND = ''
+      OETC.OTIF.PROMISE.REC = ''
+      OETC.PO.LINKED = ''
+      OETC.PRICE.MATCH.DISP.LINE = ''
+      OETC.PRICE.MATCH.LINE = ''
+      OETC.PRICE.MATCH.VAT.RATE = ''
+      OETC.PROD.IPR.ERRORS = ''
+      OETC.PROD.QUOTED = ''
+      OETC.REMOTE.FILES.LIST = ''
+      OETC.REMOTE.TERMWORK.REC = ''
+      OETC.SALE.TYPE = ''
+      OETC.SCREEN.LINE = ''
+      OETC.SHOWN.FREE.STOCK.ERROR = ''
+      OETC.SPLIT.LINES = ''
+
+* For BS.OE.PO.TO.BRN.COMMON:-
+      COMM.BOPTB.FROM = ''
+      COMM.BOPTB.IDAR.BO.REMOVE.FLAG = ''
+
+* For GETPRICE.COMMON:-
+      AREA.PROM.PRESENT = ''
+      MAT AREA.PROM.XREF.REC = ''
+      BRANCH.BSP.PRESENT = ''
+      MAT BRANCH.BSP.XREF.REC = ''
+      BRANCH.CSA.PRESENT = ''
+      MAT BRANCH.CSA.XREF.REC = ''
+      BRANCH.PROM.PRESENT = ''
+      MAT BRANCH.PROM.XREF.REC = ''
+      COMPANY.CSA.PRESENT = ''
+      MAT COMPANY.CSA.XREF.REC = ''
+      COMPANY.PROM.PRESENT = ''
+      MAT COMPANY.PROM.XREF.REC = ''
+      COST.SQ = ''
+      COST.UOM.SQ = ''
+      MAT CSA.INDEX.REC = ''
+      FLEXIBLE.ACCOUNT.LINKED.LOWEST.PRICE = ''
+      FLEXIBLE.ACCOUNT.LINKED.PRICED.USED = ''
+      GPC.FIXED.FLAT.RATE = ''
+      GPC.PRICING.BRAND = ''
+      GPC.REMOTE.ORIGINAL.BRANCH = ''
+      GPC.TRIAL.M2.PRICE = ''
+      GPC.TRIAL.M2.PRICE.UOM = ''
+      GPC.TRIAL.M2.PRICING.BRANCH = ''
+      GPC.TRIAL.M2.PROD.CODE = ''
+      IGNORE.QUANTITY.BREAK = ''
+      LABEL.PRICING.MODE = ''
+      LEVEL.USED.FLAG = ''
+      LUMP.LINES.PROCESSED = ''
+      NON.CSA.PRICE = ''
+      MAT ORDER.LINE.REC = ''
+      MAT PASS.TIMBER.LINES = ''
+      MAT PF.BRN.COSTS.AND.PRICES.REC = ''
+      MAT PF.PRODUCT.MASTER.REC = ''
+      MAT POS.ERRORS.REC = ''
+      PRICE.MATCH.LINES = ''
+      PRICE.MATCH.LINES.PROCESSED = ''
+      PRICE.MATCH.VAT.RATE = ''
+      PRICING.ACCOUNT.FLEXIBLE.ACCOUNT = ''
+      PRICING.ACCOUNT.FLEXIBLE.BRAND = ''
+      PROM.EXEMPT = ''
+      REGION.CSA.PRESENT = ''
+      MAT REGION.CSA.XREF.REC = ''
+      REGION.PROM.PRESENT = ''
+      MAT REGION.PROM.XREF.REC = ''
+      SALE.TYPE = ''
+      MAT SY.BSP.INDEX.REC = ''
+      MAT SY.PROM.INDEX.REC = ''
+      CATALOGUE.GENERATION = ''
+      KY.CLASS.PRESENT = ''
+      MAT KY.CLASS.REC = ''
+      KY.CLASS.SQ = ''
+
+      RETURN
+
+********************************
+INIT.REST.OF.COMMONS.ON.WAY.OUT:
+********************************
+
+      GOSUB INIT.REST.OF.COMMONS.ON.WAY.IN
+
+* For BS.OE.PARAMS.COMMON:-
+      OEPC.BRN.DELIV.CHARGE.CODE = ''
+      OEPC.DELIV.CHARGE.CODES = ''
+      OEPC.MIN.DEPOSIT.% = ''
+      OEPC.NATIONAL.SALES.ENTRY = ''
+      OEPC.REMOTE.ORIGINAL.BRANCH = ''
+      OEPC.SHARED.DIST.ENTRY = ''
+      OEPC.STD.VAT.RATE = ''
+
+* For BS.OE.TICKET.COMMON:-
+      OETC.LINKED.CASH.SALES = ''
+      OETC.MAX.CASH.PAYMENT = ''
+
+* For QUOTE.COMMON:-
+      CALL BS.OE.CLEAR.QUOTE.COMMON
+      APPLY.ORD.TO.LINES = ''
+      PG.PRICING.LEVEL = ''
+
+      GPC.REMOTE.ORIGINAL.BRANCH = ''
+      RETURN
+
+**********************************************************************
+************
+FATAL.ERROR:
+************
+
+      CRT CURSOR.ON:
+      VAR = ''
+
+      VAR<1,1> = "V1"
+      VAR<1,2> = PROGRAM.NAME
+      VAR<1,3> = DATE()
+      VAR<1,4> = TIME()
+      VAR<1,5> = LOWER(SYSTEM(9001))
+      VAR<2> = FATAL.ERROR.MSG
+      VAR<-1> = "!"
+
+      DATA VAR
+      CHAIN "SY.FATAL.ERROR"
+
+      RETURN
+
+*********************************************************************
+      INCLUDE INCLUDES TRANS.BOUNDS
+*********************************************************************
+   END

@@ -1,0 +1,633 @@
+      SUBROUTINE BS.OE.ORD.CONTROL(HDR.KEY,ORDER.MODE,CASH.SPLIT.INDEX,SPARE4,SPARE3,SPARE2,SPARE1)
+      PROGRAM.NAME = "BS.OE.ORD.CONTROL"
+*********************************************************************
+* Description
+* This program is used to control the order processing
+* N.B. Order Header is in BS.OE.TICKET.COMMON
+*
+* HDR.KEY                         Program who is calling this one, which
+*                                 determines the screen options displayed.
+*
+* ORDER.MODE                      Mode that order entry is to run
+*                                 'DESPATCH'
+*                                 'NATIONAL.ENTRY'
+*                                 'SHARED.DIST.ENTRY'
+*                                 'NATIONAL.SALES.ENQ'
+*                                 'INVOICE.PRICE.ADJUST'
+*                                 'OPEN.ORDER.ENQUIRY'
+*                                 'MANUAL'
+*                                 'CONVERT.QUOTE'
+*                                 'FORWARD.ENQUIRY'
+*                                 'ADVICE.CONFIRM'
+*
+* SPAREn                          Spares
+*
+*********************************************************************
+*
+* Author       :MPEAR
+* Date Written :21/01/02
+*
+*  Job #   Story #     Date   Inits       Comments
+* ======== ========= ======== =========== ========
+* 14793r08           20/02/12 brrob       Create POs from Find Stock
+* 14721r04           14/02/12 MPORA       Code changes for Waste Ticket
+* 14804r61           03/12/12 MSUND       Call split ticket hierarchy display screen
+* 15178r02           06/12/13 mstut       Added OK.TO.CONTINUE.FLAG to BS.OE.HEADER.ENTRY
+*                                         to indicate if there has been an error with
+*                                         web service validation.
+* 15258.5            18/08/14 ckirb       Always set up customer mandated flags
+* 15278r34 US35389   04/02/15 stest/ams   Clean Code
+*                                         Added check for SMARTPOD load in progress
+* 15338r21           07/07/15 brrob       PRB0004264 - Duplicate Ticket Numbers
+* 15514r04           26/09/16 dmcdo       PRB0005188 - Split ticket locking issue
+* 15513r26 US21713   07/03/17 vagre       Retain outstanding delivery date on cash split ticket
+*                                         for RRP branches.
+* 15513r17           16/11/17 jdalt/milst PRB0006053 - Fix screen corruption in ROBE
+* 15624r16 SCP-1380  25/03/20 lneal       Add in call to check Openfleet
+*                                         DELIV.MAN.CHECK.IF.TRANSPORT.DEPARTED
+* 15624rnn SCP-1576  11/08/20 mgamb       Cater for MV data in OH.DELIV.LOAD when calling
+*                                         DELIV.MAN.CHECK.IF.TRANSPORT.DEPARTED
+* 15784r12 APT-371   07/10/25 shapm       BRD-272 - Stop PO cancellation after Dispatch
+*********************************************************************
+
+      INCLUDE DG-INCLUDES TCSTANDARD
+      INCLUDE INCLUDES BS.OE.TICKET.COMMON
+      INCLUDE INCLUDES BS.OE.PARAMS.COMMON
+      INCLUDE INCLUDES BS.OE.USER.COMMON
+      INCLUDE INCLUDES COMMON.SCREEN
+      INCLUDE INCLUDES QUOTE.COMMON
+      INCLUDE INCLUDES MN.TERMWORK.COMMON
+      INCLUDE INCLUDES APP.DEFFUN.INCLUDES
+      INCLUDE INCLUDES BS.OE.PO.TO.BRN.COMMON
+      INCLUDE INCLUDES GETPRICE.COMMON
+
+***********
+* EQUATES *
+***********
+
+      INCLUDE INCLUDES EQU.TERMWORK.REC
+      INCLUDE INCLUDES EQU.BRN.DETAIL.DIM
+      INCLUDE INCLUDES EQU.ORDER.HEADER.REC
+
+**************
+* FILE OPENS *
+**************
+
+      ACCOUNT.NAME = OCONV(@WHO,'MCU')
+      ERR = ''
+
+      INCLUDE INCLUDES OPEN.FILE.SY.PARAMS
+      INCLUDE INCLUDES OPEN.FILE.ORDER.HEADER
+      INCLUDE INCLUDES OPEN.FILE.BS.PARKED.HEADER
+      INCLUDE INCLUDES OPEN.FILE.BRN.DETAIL
+      INCLUDE INCLUDES OPEN.FILE.TERMWORK
+      INCLUDE INCLUDES OPEN.FILE.SCREENS
+
+      IF ERR NE '' THEN
+         FATAL.ERROR.MSG = "CANNOT OPEN FILES ":ERR
+         GOSUB FATAL.ERROR
+      END
+
+***********
+* EQUATES *
+***********
+
+      EQU TRUE TO 1
+      EQU FALSE TO 0
+
+      GOSUB MAIN.PROG
+
+**********
+*PROG.END*
+**********
+
+      RETURN
+
+*********************************************************************
+**********
+MAIN.PROG:
+**********
+
+      CRT CURSOR.OFF:
+      GOSUB INITIALISATION
+      LOOP UNTIL GET.OUT DO
+
+         GOSUB REINITIALISE
+         IF HDR.KEY # '' THEN
+            SKIP.OVER.ENTRY.SCRN= 1
+         END
+         IF NOT(SKIP.OVER.ENTRY.SCRN) THEN
+            IF ORDER.MODE = 'MANUAL' THEN
+               ACCOUNT.ONLY = TRUE
+               OEPC.APPLY.ORD.TO.LINES = ''
+               OEPC.DEFAULT.JOB.NO = ''
+            END ELSE
+               ACCOUNT.ONLY = ''
+            END
+
+            OETC.LINKED.CASH.SALES = ""
+
+            CALL BS.OE.ORD.ENTRY(PROGRAM.NAME,SCREEN.MODE,REPLY,'',ACCOUNT.ONLY,'',ORDER.MODE,'')
+         END ELSE
+
+            BEGIN CASE
+*** Allow IBT adjustment via open order enquiry and deliveries due enquiry
+*** Not sure if the same 'soft PO locking' is required here, since it's done in BS.ORDER.ADJUSTMENT.DRV which is called here.
+*** However, if the lock is obtained, it should be deleted here and the PO-HEADER record RELEASEd.
+               CASE ((ORDER.MODE = "OPEN.ORDER.ENQUIRY") OR (ORDER.MODE = "DELIVERIES.DUE.ENQUIRY")) AND (HDR.KEY[2,1] = "M")
+                  READU SOMETHING FROM ORDER.HEADER.FV, HDR.KEY LOCKED
+                     PROBLEM.PORT = STATUS() 'R%4'
+                     READV LOCK.USER FROM TERMWORK.FV, PROBLEM.PORT, 1 ELSE
+                        LOCK.USER = "Unknown User"
+                     END
+                     CALL ERR('TICKET IS LOCKED BY USER ':LOCK.USER:' ON PORT ':PROBLEM.PORT,'')
+                  END THEN
+                     PASS.MODE.AND.KEY = HDR.KEY:VM:ORDER.MODE
+                     CALL BS.ORDER.ADJUSTMENT.DRV(PASS.MODE.AND.KEY)
+                  END ELSE
+                     RELEASE ORDER.HEADER.FV, HDR.KEY
+                     CALL ERR ("CANNOT FIND TICKET ":HDR.KEY[2,99],'')
+                  END
+                  CALL BS.OE.TICKET.CLEAR.COMMON
+
+               CASE (ORDER.MODE = 'CONVERT.QUOTE' OR ORDER.MODE = 'FORWARD.ENQUIRY' OR ORDER.MODE = 'ADVICE.CONFIRM' OR SALE.FROM.QUOTE)
+                  ERR = ''
+                  ERRMSG = ''
+                  RECORD.FOUND = ''
+                  REPEATORDER = FALSE
+                  REPLY = HDR.KEY
+                  GOSUB REPAINT.TOP.LINE
+                  CALL BS.OE.READ.ORDER.HEADER.AND.LINES(HDR.KEY,'',RECORD.FOUND,ERR,ERRMSG,REPEATORDER,PARKED,'','','')           ; * 11264
+                  IF ERR = -1 THEN
+                     FATAL.ERROR.MSG = ERRMSG
+                     GOSUB FATAL.ERROR
+                  END
+                  IF NOT(RECORD.FOUND) THEN
+                     REPLY = ''
+                  END
+                  IF RETURN.TO.MENU THEN
+                     GET.OUT = TRUE
+                  END
+
+               CASE (TRUE)
+
+                  IF (ORDER.MODE = "OPEN.ORDER.ENQUIRY") OR (ORDER.MODE = "DELIVERIES.DUE.ENQUIRY") OR (ORDER.MODE = 'FORWARD.ENQUIRY') OR (ORDER.MODE = 'ADVICE.CONFIRM') THEN
+                     GOSUB REPAINT.TOP.LINE
+                  END
+
+                  ERR = ''
+                  ERRMSG = ''
+                  RECORD.FOUND = ''
+                  REPEATORDER = FALSE
+                  REPLY = HDR.KEY
+                  CALL BS.OE.READ.ORDER.HEADER.AND.LINES(HDR.KEY,'',RECORD.FOUND,ERR,ERRMSG,REPEATORDER,PARKED,'','','')           ; * 11264
+                  IF ERR = -1 THEN
+                     FATAL.ERROR.MSG = ERRMSG
+                     GOSUB FATAL.ERROR
+                  END
+                  IF NOT(RECORD.FOUND) THEN
+                     REPLY = ''
+                  END ELSE
+                     IF OH.SALE.TYPE = "M" THEN
+                        IF DELIV.IND = 3 AND TRIM(OETC.BRN.FEEDER.STATUS) = "" THEN
+                           OETC.BRN.FEEDER.STATUS = "FEEDER"
+                        END
+
+                        READV THIS.BRAND FROM BRN.DETAIL.FV, CUST.CODE, 65 ELSE
+                           FATAL.ERROR.MSG = "CANNOT READ FILE BRN-DETAIL FOR RECORD ":CUST.CODE
+                           GOSUB FATAL.ERROR
+                        END
+
+                        READV IBT.SUPER.BRANCH.LIST FROM SY.PARAMS.FV, "IBT.SUPER.BRANCH", 1 THEN
+                           LOCATE TRM.BRN.CODE IN IBT.SUPER.BRANCH.LIST<1> SETTING POS THEN
+                              OETC.IBT.SUPER.BRANCH = TRUE
+                              IF FUNC.BRAND.CHECK(BRN.BRAND[2,1],1,"","","","","") THEN    ; * CCF ?
+                                 IF FUNC.BRAND.CHECK(THIS.BRAND[2,1],2,"","","","","") THEN OETC.IBT.SUPER.BRANCH = FALSE          ; * CCF to CCF
+                              END
+                           END
+                        END
+
+                        IF FUNC.BRAND.CHECK(BRN.BRAND[2,1],3,"","","","","") THEN          ; * CCF ?
+                           OETC.IBT.OR.ICT = "ICT"
+                           IF FUNC.BRAND.CHECK(THIS.BRAND[2,1],4,"","","","","") THEN OETC.IBT.OR.ICT = "IBT"
+                        END
+                     END
+                  END
+                  IF RETURN.TO.MENU THEN
+                     GET.OUT = TRUE
+                  END
+
+            END CASE
+
+         END
+
+         HDR.KEY = ''
+         IF REPLY THEN
+            GOSUB CLEAR.SCREEN
+
+** display customer information
+            BEEN.IN = FALSE
+
+            CALL BS.OE.CHECK.MAND.CUST.DATA('','','','','')
+
+            CALL BS.OE.CUSTOMER.SUMMARY
+
+** does the order already exist?
+*  if it does then goto line selection
+*  if not then drop straight into quick line entry
+            BEGIN CASE
+               CASE (OETC.LINE.ARRAY) OR (OH.WASTE.FLAG = 'Y')
+                  CALL BS.VALIDATE.BRANCH(TRM.BRN.CODE,PROGRAM.NAME,DISPLAY.SPLIT.INFO,"","","","","")
+                  IF DISPLAY.SPLIT.INFO THEN
+                     SAVE.SCREEN = SC.CURR
+                     CALL BS.DISPLAY.SPLIT.ORDER.LINES(OETC.ORDER.HEADER.KEY,"","","","","","")
+                     SC.CURR = SAVE.SCREEN
+                     CALL TPREPAINT("CURR":AM:"1-21":AM:"0-79":AM:"Y","","","")
+                  END
+** display order summary screen
+                  OETC.OSUM.PAGENO = 1
+                  OETC.OSUM.MODE = "FULLSCREEN"
+                  OETC.OSUM.SHOW.HEADINGS = TRUE
+                  IF OEPC.INVOICE.PRICE.ADJUST THEN
+                     OETC.OSUM.TOGGLE = 4
+                  END ELSE
+                     OETC.OSUM.TOGGLE = 1
+                  END
+                  CALL BS.OE.ORDER.SUMMARY
+
+                  OETC.OSUM.SHOW.HEADINGS = FALSE
+
+                  CILIP.PARAMS = ""
+                  CILIP.PARAMS<1> = FIELD(OH.DELIV.LOAD<1,1>, "*", 1, 4)
+                  CILIP.PARAMS<2> = TRUE
+                  CALL CHECK.IF.LOAD.IN.PROGRESS(CILIP.PARAMS, "", "")
+                  CALL DELIV.MAN.CHECK.IF.TRANSPORT.DEPARTED(OH.DELIV.LOAD<1,1>, @TRUE, "")
+
+                  CALL BS.OE.LINE.SELECTION("",CASH.SPLIT.INDEX,"","","","")
+
+               CASE 1
+
+** order summary display
+                  OETC.OSUM.MODE = "PARTSCREEN"
+                  OETC.OSUM.TOGGLE = 1
+                  OETC.OSUM.SHOW.HEADINGS = TRUE
+                  CALL BS.OE.ORDER.SUMMARY
+                  OETC.OSUM.SHOW.HEADINGS = FALSE
+
+** display product line entry header
+                  CALL BS.OE.LINE.HEADER
+
+                  IF NOT(BEEN.IN) THEN
+                     IF OETC.MAND.DATA(2) = FALSE AND OETC.MAND.DATA(3) = FALSE AND OETC.MAND.DATA(4) = FALSE AND OETC.MAND.DATA(5) = FALSE AND OETC.MAND.DATA(6) = FALSE AND OETC.MAND.DATA(7) = FALSE AND OETC.MAND.DATA(8) = FALSE AND OETC.MAND.DATA(1) = TRUE THEN
+                        SAVE.SCREEN = SC.CURR
+                        CALL BS.OE.CUST.ORD.NUMBER('','','','','')
+                        SC.CURR = SAVE.SCREEN
+                        CALL TPREPAINT("CURR":AM:"1-15":AM:"0-79":AM:"Y","","","")
+                     END ELSE
+                        IF (OETC.MAND.DATA(2)) OR (OETC.MAND.DATA(3)) OR (OETC.MAND.DATA(4)) OR (OETC.MAND.DATA(5)) OR (OETC.MAND.DATA(6)) OR (OETC.MAND.DATA(7)) OR (OETC.MAND.DATA(8)) THEN
+                           BEEN.IN = TRUE
+                           SAVE.SCREEN = SC.CURR
+                           ROUTING = 0
+                           CALL BS.OE.HEADER.ENTRY(ROUTING,'',TRUE,'',OK.TO.CONTINUE,'','')
+
+                           SC.CURR = SAVE.SCREEN
+
+                           IF OK.TO.CONTINUE THEN
+                              CALL BS.OE.CUSTOMER.SUMMARY
+                              OETC.OSUM.SHOW.HEADINGS = TRUE
+                              CALL BS.OE.ORDER.SUMMARY
+                              OETC.OSUM.SHOW.HEADINGS = FALSE
+                              IF OETC.OSUM.FINAL + 3 < 20 THEN
+                                 CALL TPREPAINT("CURR":AM:OETC.OSUM.FINAL+3:"-20":AM:"0-79":AM:"Y","","","")
+                              END
+                           END
+                        END
+                     END
+                  END ELSE
+                     BEEN.IN = FALSE
+                  END
+** line entry
+                  IF OK.TO.CONTINUE THEN
+                     IF OH.ORD.DATE = '' THEN OH.ORD.DATE = DATE()
+                     OETC.LINE.MODE = "ADD"
+                     OETC.LINE.TYPE = "NEW"
+                     CALL BS.OE.LINE.CONTROLLER
+** check if there are any lump lines and get value if there are
+                     IF (ORDER.HEADER.REC(53) # '') THEN
+                        SC.SAVE = SC.CURR
+                        LOOP
+                           CALL BS.OE.LUMP.SUM.DRIVER(12,LUMP.SUM.DONE,FALSE,'','','')
+                        UNTIL LUMP.SUM.DONE DO
+                           CALL ERR("YOU MUST ENTER A LUMP SUM",'')
+                        REPEAT
+** set the previous back, as it is now previous!
+                        SC.PREV = SC.SAVE
+** and use that, rather than the current
+                        CALL TPREPAINT("PREV":AM:"12-21":AM:"0-79":AM:"Y",'','','')
+                     END ELSE
+                        OH.LUMP.TOTAL = ''
+                        OH.LUMP.VAT = ''
+                     END
+
+                     CALL BS.OE.LINE.SELECTION("",CASH.SPLIT.INDEX,"","","","")
+                  END
+
+                  OK.TO.CONTINUE = TRUE
+            END CASE
+
+         END ELSE
+            GET.OUT = TRUE
+         END
+
+         BEGIN CASE
+            CASE (ORDER.MODE = "OPEN.ORDER.ENQUIRY" OR ORDER.MODE = 'FORWARD.ENQUIRY' OR ORDER.MODE = 'ADVICE.CONFIRM')
+               GET.OUT = TRUE
+            CASE (ORDER.MODE = "CONVERT.QUOTE") OR (SALE.FROM.QUOTE)
+               GET.OUT = TRUE
+               RETURN.TO.MENU = TRUE
+            CASE (ORDER.MODE = "DELIVERIES.DUE.ENQUIRY")
+               GET.OUT = TRUE
+            CASE (TRUE)
+         END CASE
+
+         IF OEPC.REMOTE.GET.OUT THEN
+            GET.OUT = TRUE
+            OEPC.REMOTE.GET.OUT = FALSE
+         END
+
+      REPEAT
+
+      IF RETURN.TO.MENU THEN
+         * release header keys
+         IF OETC.ORDER.HEADER.KEY THEN
+            RELEASE ORDER.HEADER.FV, OETC.ORDER.HEADER.KEY
+         END
+         IF OETC.PARKED.KEY THEN
+            RELEASE BS.PARKED.HEADER.FV, OETC.PARKED.KEY
+         END
+      END
+
+      CRT CURSOR.ON:
+      RETURN
+
+*********************************************************************
+***************
+INITIALISATION:
+***************
+      GET.OUT = ''
+      SCREEN.MODE = 0
+      RETURN.TO.MENU = ''
+      REPLY = ''
+
+      OK.TO.CONTINUE = TRUE
+
+      OEPC.NATIONAL.SALES.ENTRY = ""
+      OEPC.SHARED.DIST.ENTRY = ""
+      OEPC.REMOTE.QUOTE.OR.PARKED = ""
+
+      OEPC.INVOICE.PRICE.ADJUST = ''
+      MAT BRN.DETAIL.REC = MAT OEPC.LOCAL.BRN.DETAIL.REC
+      MAT TERMWORK.REC = MAT OEPC.TERMWORK.REC
+
+      CALL BS.CHECK.FORWARD.ORDER.STATUS(BRN.BRAND[2,1],TRM.BRN.CODE,FORWARD.ORDER.ENABLED,ERROR.MSG,'','','','','')
+
+      SALE.FROM.QUOTE = FALSE
+      IF INDEX(SYSTEM(9001),'SQ.CONV',1) AND FORWARD.ORDER.ENABLED THEN SALE.FROM.QUOTE = TRUE
+      OETC.BRN.FEEDER.STATUS = BRN.FEEDER.STATUS
+      OETC.IBT.SUPER.BRANCH = FALSE
+      OETC.IBT.OR.ICT = ""
+
+      EXT.TODAY = OCONV(DATE(),'D2/')
+      PARTSCREENNAME = "%BS.OE.ENTRY.SCREEN"
+      READ SCREENPART FROM SCREENS.FV, PARTSCREENNAME ELSE
+         FATAL.ERROR.MSG = "CANNOT READ ":PARTSCREENNAME:" FROM SCREENS"
+         GOSUB FATAL.ERROR
+      END
+
+      BEGIN CASE
+
+         CASE ORDER.MODE = "DESPATCH"
+            HDR.KEY = ""
+            OEPC.LIMITED.ADJUSTMENT.MODE = TRUE
+            OEPC.REMOTE.ORIGINAL.BRANCH = ""
+
+         CASE ORDER.MODE = "NATIONAL.ENTRY"
+            OEPC.NATIONAL.SALES.ENTRY = TRUE
+
+         CASE ORDER.MODE = 'SHARED.DIST.ENTRY'
+            OEPC.SHARED.DIST.ENTRY = TRUE
+
+         CASE ORDER.MODE = "NATIONAL.SALES.ENQ"
+            RETURN.TO.MENU = TRUE
+
+            OEPC.REMOTE.ORIGINAL.BRANCH = ""
+
+         CASE ORDER.MODE = "INVOICE.PRICE.ADJUST"
+            RETURN.TO.MENU = TRUE
+            OEPC.REMOTE.ORIGINAL.BRANCH = ""
+            OEPC.INVOICE.PRICE.ADJUST = TRUE
+
+         CASE ORDER.MODE = "CONVERT.QUOTE" OR SALE.FROM.QUOTE
+            OEPC.REMOTE.ORIGINAL.BRANCH = ""
+            OEPC.INVOICE.PRICE.ADJUST = TRUE
+
+         CASE (ORDER.MODE = 'OPEN.ORDER.ENQUIRY' OR ORDER.MODE = 'FORWARD.ENQUIRY')
+            OEPC.REMOTE.ORIGINAL.BRANCH = ""
+         CASE ORDER.MODE = 'DELIVERIES.DUE.ENQUIRY'
+            OEPC.REMOTE.ORIGINAL.BRANCH = ""
+
+         CASE 1
+            OEPC.REMOTE.ORIGINAL.BRANCH = ""
+
+      END CASE
+
+      IF UNASSIGNED(OEPC.REMOTE.GET.OUT) THEN
+         OEPC.REMOTE.GET.OUT = ""
+      END
+
+      IF UNASSIGNED(CASH.SPLIT.INDEX) THEN CASH.SPLIT.INDEX = 0
+
+      RETURN
+
+*********************************************************************
+*************
+REINITIALISE:
+*************
+      SKIP.OVER.ENTRY.SCRN = 0
+
+      GOSUB INIT.REST.OF.COMMONS
+
+      * release header keys
+      IF OETC.ORDER.HEADER.KEY THEN
+         LOCATE OETC.ORDER.HEADER.KEY IN OEPC.PROCESS.TICKET.LIST SETTING NOTHING ELSE
+            RELEASE ORDER.HEADER.FV, OETC.ORDER.HEADER.KEY
+* Split tickets can have 2 order-header locks. Check for split and release.
+            IF OETC.ORDER.HEADER.KEY[1,1] # "0" THEN
+               SPLIT.TICKET.KEY = OETC.ORDER.HEADER.KEY[1,1]-1:OETC.ORDER.HEADER.KEY[2,9]
+               RELEASE ORDER.HEADER.FV, SPLIT.TICKET.KEY
+            END
+         END
+      END
+      IF OETC.PARKED.KEY THEN
+         LOCATE OETC.PARKED.KEY IN OEPC.PROCESS.TICKET.LIST SETTING NOTHING ELSE
+            RELEASE BS.PARKED.HEADER.FV, OETC.PARKED.KEY
+         END
+      END
+      CALL BS.OE.TICKET.CLEAR.COMMON
+      IF (@SENTENCE # 'SQ.DR.NEW') AND NOT(SALE.FROM.QUOTE) THEN CALL BS.OE.CLEAR.QUOTE.COMMON
+
+* losing surcharge in ticket.clear.common
+      CALL BS.OE.SURCHARGE
+
+      SALE.TYPE = ''
+
+      PARKED = FALSE
+      IF OEPC.PROCESS.TICKET.LIST THEN
+         HDR.KEY = OEPC.PROCESS.TICKET.LIST<1>
+         DEL OEPC.PROCESS.TICKET.LIST<1>
+         IF HDR.KEY[1,4] MATCHES '0N' THEN
+            PARKED = TRUE
+         END
+         IF OEPC.PROCESS.TICKET.LIST<1> # '' THEN
+            CALL TPCRT(59,0,TCREV:">>>>":TCUL,"","","","","","")
+         END ELSE
+            CALL TPCRT(59,0,SPACE(6),"","","","","","")
+            CALL TPCRT(0,0,TCUL,"","","","","","")
+            CALL TPCRT(79,0,NORMAL,"","","","","","")
+         END
+      END
+
+      INCLUDE INCLUDES BUILD.TOP.RIGHT
+      MAT TERMWORK.REC = MAT OEPC.TERMWORK.REC
+      CALL PR.SET.DEFAULTS('',@ACCOUNT'MCU',TRM.BRN.CODE,TOP.RIGHT)
+
+      IF UNASSIGNED(OEPC.REMOTE.GET.OUT) THEN
+         OEPC.REMOTE.GET.OUT = ""
+      END
+
+      CALL BS.OE.PO.TO.BRN.CLEAR.COMMON
+      COMM.BOPTB.BRAND = BRN.BRAND[2,1]
+
+      RETURN
+
+*********************************************************************
+*************
+CLEAR.SCREEN:
+*************
+      FOR SCRLINE = 1 TO 21
+         CALL TPCRT(0,SCRLINE,"","",-4,"","","","")
+      NEXT SCRLINE
+
+      IF OEPC.INVOICE.PRICE.ADJUST THEN
+         FULL.WIDTH = 131
+      END ELSE
+         FULL.WIDTH = 79
+      END
+
+      CALL TPCRT(FULL.WIDTH,0,NORMAL,"","","","","","")
+      CALL TPCRT(FULL.WIDTH,21,NORMAL,"","","","","","")
+      CALL TPCRT(0,21,TCUL,"","","","","","")
+
+      RETURN
+
+*********************************************************************
+*****************
+REPAINT.TOP.LINE:
+*****************
+
+      IF (@SENTENCE = 'SQ.DR.NEW' OR @SENTENCE = 'BS.FORWARD.ORDERS.ENQ' OR @SENTENCE = 'BS.ADVICE.NOTE.ENQUIRY.SCREEN.DRV' OR SALE.FROM.QUOTE OR @SENTENCE = 'BS.NATIONAL.SALES.ENQ.BRN.DRV') THEN
+         CRT.VAR = @(1,0):@(-4)
+      END ELSE
+         CRT.VAR = ''
+      END
+      CRT.VAR := @(0,0):SCREENPART<1>
+      CRT.VAR := @(1,0):EXT.TODAY:TOP.RIGHT
+      CRT CRT.VAR
+
+      RETURN
+
+**********************************************************************
+*********************
+INIT.REST.OF.COMMONS:
+*********************
+
+* For GETPRICE.COMMON:-
+      AREA.PROM.PRESENT = ''
+      MAT AREA.PROM.XREF.REC = ''
+      BRANCH.BSP.PRESENT = ''
+      MAT BRANCH.BSP.XREF.REC = ''
+      BRANCH.CSA.PRESENT = ''
+      MAT BRANCH.CSA.XREF.REC = ''
+      BRANCH.PROM.PRESENT = ''
+      MAT BRANCH.PROM.XREF.REC = ''
+      COMPANY.CSA.PRESENT = ''
+      MAT COMPANY.CSA.XREF.REC = ''
+      COMPANY.PROM.PRESENT = ''
+      MAT COMPANY.PROM.XREF.REC = ''
+      COST.SQ = ''
+      COST.UOM.SQ = ''
+      MAT CSA.INDEX.REC = ''
+      FLEXIBLE.ACCOUNT.LINKED.LOWEST.PRICE = ''
+      FLEXIBLE.ACCOUNT.LINKED.PRICED.USED = ''
+      GPC.FIXED.FLAT.RATE = ''
+      GPC.PRICING.BRAND = ''
+      GPC.REMOTE.ORIGINAL.BRANCH = ''
+      GPC.TRIAL.M2.PRICE = ''
+      GPC.TRIAL.M2.PRICE.UOM = ''
+      GPC.TRIAL.M2.PRICING.BRANCH = ''
+      GPC.TRIAL.M2.PROD.CODE = ''
+      IGNORE.QUANTITY.BREAK = ''
+      LABEL.PRICING.MODE = ''
+      LEVEL.USED.FLAG = ''
+      LUMP.LINES.PROCESSED = ''
+      NON.CSA.PRICE = ''
+      MAT ORDER.LINE.REC = ''
+      MAT PASS.TIMBER.LINES = ''
+      MAT PF.BRN.COSTS.AND.PRICES.REC = ''
+      MAT PF.PRODUCT.MASTER.REC = ''
+      MAT POS.ERRORS.REC = ''
+      PRICE.MATCH.LINES = ''
+      PRICE.MATCH.LINES.PROCESSED = ''
+      PRICE.MATCH.VAT.RATE = ''
+      PRICING.ACCOUNT.FLEXIBLE.ACCOUNT = ''
+      PRICING.ACCOUNT.FLEXIBLE.BRAND = ''
+      PROM.EXEMPT = ''
+      REGION.CSA.PRESENT = ''
+      MAT REGION.CSA.XREF.REC = ''
+      REGION.PROM.PRESENT = ''
+      MAT REGION.PROM.XREF.REC = ''
+      SALE.TYPE = ''
+      MAT SY.BSP.INDEX.REC = ''
+      MAT SY.PROM.INDEX.REC = ''
+      CATALOGUE.GENERATION = ''
+      KY.CLASS.PRESENT = ''
+      MAT KY.CLASS.REC = ''
+      KY.CLASS.SQ = ''
+
+      RETURN
+
+*********************************************************************
+************
+FATAL.ERROR:
+************
+
+      CRT CURSOR.ON:
+      VAR = ''
+
+      VAR<1,1> = "V1"
+      VAR<1,2> = PROGRAM.NAME
+      VAR<1,3> = DATE()
+      VAR<1,4> = TIME()
+      VAR<1,5> = LOWER(SYSTEM(9001))
+      VAR<2> = FATAL.ERROR.MSG
+      VAR<-1> = "!"
+
+      DATA VAR
+      CHAIN "SY.FATAL.ERROR"
+
+      RETURN
+
+*********************************************************************
+      INCLUDE INCLUDES TRANS.BOUNDS
+*********************************************************************
+   END

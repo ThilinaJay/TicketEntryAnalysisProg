@@ -1,0 +1,101 @@
+      SUBROUTINE BS.OE.SHOW.ERROR(ERROR.CODE,ERROR.MSG,CALLING.PROG)
+      PROGRAM.NAME = "BS.OE.SHOW.ERROR"
+*********************************************************************
+* Description
+* -----------
+* Handles errors for green-screen display.
+*********************************************************************
+*
+* Author       : John Woollam
+* Date Written : 3rd April 2002
+*
+*  Job #    Date   Inits Comments
+* ======= ======== ===== ========
+*  7452   03/04/02 jwool Original Version
+* 11403   23/01/03 jwool Make phantom compatible
+*********************************************************************
+* ARGUMENTS             I/O
+* ---------             ---
+*
+* ERROR.CODE             I    < 0  - Fatal Error
+*                             > 0  - Non-fatal error
+*                             0    - no error
+*
+* ERROR.MSG              I    Multi_attr list of text error messages.
+*
+* CALLING.PROG           I    Program Name for fatal error call
+*
+*********************************************************************
+
+      INCLUDE DG-INCLUDES TCSTANDARD
+
+      IF UNASSIGNED(ERROR.CODE) THEN
+         ERROR.CODE = 0
+      END
+
+      IF UNASSIGNED(ERROR.MSG) THEN
+         ERROR.MSG = ''
+      END
+
+* 11403 jwool - translate null to zero
+      ERROR.CODE += 0
+* 11403 jwool end
+
+      * fatal
+      IF ERROR.CODE < 0 THEN
+         IF UNASSIGNED(CALLING.PROG) THEN
+            CALLING.PROG = "Unknown Program"
+         END
+         GOSUB FATAL.ERROR
+      END
+
+      * non-fatal
+      IF ERROR.CODE THEN
+         LOOP WHILE ERROR.MSG DO
+* 11403 jwool - phantom compatible
+            IF SYSTEM(25) THEN
+               CRT ERROR.MSG<1>
+            END ELSE
+* 11403 jwool end
+               CALL ERR(ERROR.MSG<1>,'')
+* 11403 jwool - phantom compatible
+            END
+* 11403 jwool end
+            DEL ERROR.MSG<1>
+         REPEAT
+      END
+
+      * reset
+      ERROR.CODE = 0
+      ERROR.MSG = ''
+
+      RETURN
+
+*********************************************************************
+************
+FATAL.ERROR:
+************
+
+      IF @TRANSACTION THEN
+         GOSUB ABORT.TRANS
+      END
+
+      CRT CURSOR.ON:
+      VAR = ''
+
+      VAR<1,1> = "V1"
+      VAR<1,2> = CALLING.PROG
+      VAR<1,3> = DATE()
+      VAR<1,4> = TIME()
+      VAR<2> = ERROR.MSG
+      VAR<-1> = "!"
+
+      DATA VAR
+      CHAIN "SY.FATAL.ERROR"
+
+      RETURN
+
+*********************************************************************
+      INCLUDE INCLUDES TRANS.BOUNDS
+*********************************************************************
+   END

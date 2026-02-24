@@ -1,0 +1,123 @@
+      PROGRAM BS.OE.SURCHARGE
+      PROGRAM.NAME = "BS.OE.SURCHARGE"
+*********************************************************************
+* Description
+* -----------
+* Returns the surcharge (i.e. London etc) based on the customer and
+* branch details .....this routine needs to be called on entering
+* BS.OE.DRV and on customer entry/customer change
+*********************************************************************
+*
+* Author       : Derek Elsley (contractor) / marka
+* Date Written : 27/03/02
+*
+*  Job #    Date   Inits Comments
+* ======= ======== ===== ========
+*    7452 27/03/02 delse Original Version
+*    ???? 14/02/03 marka Live Code change - surcharge.rate was being
+*                        rounded R2 - should be R4
+*********************************************************************
+
+      INCLUDE DG-INCLUDES TCSTANDARD
+
+      EQU TRUE TO 1
+      EQU FALSE TO 0
+      EQU NULL TO ""
+      EQU DLIM TO '*'
+      EQU EOL TO CLEOL
+      EQU EOS TO CLEOS
+
+      INCLUDE INCLUDES BS.OE.TICKET.COMMON
+      INCLUDE INCLUDES BS.OE.PARAMS.COMMON
+      INCLUDE INCLUDES BS.OE.USER.COMMON
+      INCLUDE INCLUDES GETPRICE.COMMON
+
+      ACCOUNT.NAME = OCONV(@WHO,'MCU')
+      ERR = ''
+
+      INCLUDE INCLUDES OPEN.FILE.SY.PARAMS
+
+      IF ERR NE '' THEN
+         FATAL.ERROR.MSG = "CANNOT OPEN FILES ":ERR
+         GOSUB FATAL.ERROR
+      END
+
+      INCLUDE INCLUDES EQU.TERMWORK.REC
+      INCLUDE INCLUDES EQU.ORDER.HEADER.REC
+      INCLUDE INCLUDES EQU.POS.CUSTOMER.REC.EPOS
+      INCLUDE INCLUDES EQU.BRN.DETAIL.DIM
+
+      MAT POS.CUSTOMER.REC = MAT OETC.POS.CUSTOMER.REC
+      MAT BRN.DETAIL.REC = MAT OEPC.LOCAL.BRN.DETAIL.REC
+
+      GOSUB GET.SURCHARGE
+
+*********************************************************************
+PROG.END:
+      RETURN
+
+*********************************************************************
+GET.SURCHARGE:
+
+      SURCHARGE.RATE = ""
+      BEGIN CASE
+
+** no surcharge for staff
+         CASE (PC.STAFF.IND)
+
+** no surcharge on direct tickets
+         CASE (OH.SALE.TYPE MATCHES "C":VM:"G")
+
+** exempt customer
+         CASE (PC.SURCHARGE.EXEMPT = "Y")
+
+** this order already exists and has a surcharge applied
+         CASE (OH.SURCHARGE.RATE)
+            SURCHARGE.RATE = OH.SURCHARGE.RATE
+
+*** 14/02/03 marka start
+         CASE (BRN.SURCHARGE.CODE)
+
+            BEGIN CASE
+
+** percentage to apply to customer
+               CASE (PC.SURCHARGE.EXEMPT + 0)
+                  SURCHARGE.RATE = (1 + (PC.SURCHARGE.EXEMPT / 10000))'R4'
+
+** else branch level
+               CASE (TRUE)
+                  READ SURCHARGE.REC FROM SY.PARAMS.FV, "SURCHARGE" ELSE
+                     SURCHARGE.REC = ""
+                  END
+                  SURCHARGE.RATE = (1 + (SURCHARGE.REC<1,BRN.SURCHARGE.CODE> / 10000))'R4'
+
+            END CASE
+
+      END CASE
+*** 14/02/03 marka end
+
+      OH.SURCHARGE.RATE = SURCHARGE.RATE
+      RETURN
+
+*********************************************************************
+FATAL.ERROR:
+
+      CRT CURSOR.ON:
+      VAR = ''
+
+      VAR<1,1> = "V1"
+      VAR<1,2> = PROGRAM.NAME
+      VAR<1,3> = DATE()
+      VAR<1,4> = TIME()
+      VAR<2> = FATAL.ERROR.MSG
+      VAR<-1> = "!"
+
+      DATA VAR
+      CHAIN "SY.FATAL.ERROR"
+
+      RETURN
+
+*********************************************************************
+      INCLUDE INCLUDES TRANS.BOUNDS
+*********************************************************************
+   END

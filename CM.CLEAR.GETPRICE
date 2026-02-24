@@ -1,0 +1,136 @@
+      SUBROUTINE CM.CLEAR.GETPRICE
+**********************************************************************
+* Amendment History
+*
+* Job #    Story     Date   Inits Comments
+* =====   =======  ======== ===== ========
+*  6684            19/09/97 Removed redundant variable so can use in getprice
+* 10437            02/08/00 marka Added new variable surcharge rate for London Pricing
+* 11512            02/05/03 marka clear new variables added to getprice.common
+* 11700            20/10/03 jday  Clear the city plumbing trade/retail variable
+* 12014            28/07/04 dickp Clear display cost variables
+* 12442            06/04/06 mderr r5 Clear new template variables
+* 13028a           20/03/08 sdobb Add GPC.REHIRE.MIN.RATE for Tool Rehire
+* 13625            05/11/08 dombi Add GPC.TH.NO.MAN.OVERRIDE for toolhire fixed prices
+* 13882r1          10/06/09 sdobb Add GPC.CPS.LIST.PRICE for City Pricing Guidance
+* 13882r9          20/07/09 sdobb Add GPC.CPS.LIST.PRICE.UOM for City Pricing
+*                        Guidance
+* 15068r03         11/03/13 DHEND US2256/US2257 BSS Mandatory contract flag
+* 15094r??         29/04/13 MURRP US1913 Added three BRP fields
+* 15193r2          30/01/14 JHUDS Clears fields in PG.COMMON used fro price guidance
+* 15526r06 US25734 16/02/17 steta/ Additional change to use work done in US18802 
+*                           darwo  by accepting external support record as input
+**********************************************************************
+
+      INCLUDE DG-INCLUDES TCSTANDARD
+      INCLUDE INCLUDES GETPRICE.COMMON
+      INCLUDE INCLUDES PG.COMMON
+      MAT POS.CUSTOMER.REC = ''
+      PROMOTIONAL.PRODUCT.OFFER = ''
+      COLUMN.NO = ''
+      CSA.CODE = ''
+      FLAT.RATE = ''
+      LIST.PRICE = ''
+      OL.SD.CAT.CODE.1 = ''
+      ORD.PR.UOM = ''
+      ORD.COLL.% = ''
+      ORD.QTY = ''
+      ORD.QTY.UOM = ''
+      ORIG.PRICE.DATE = ''
+      PRICE.OBT.STATUS = ''
+      PRODUCT.PRICE = ''
+      SELLING.PRICE = ''
+      USE.TP1 = ''
+      PRICE.BASIS = ''
+      DEAL.TYPE = ''
+      DEAL.METHOD = ''
+      DEAL.PERCENTAGE = ''
+      DEAL.PRICE = ''
+      DEAL.PRICE.UOM = ''
+      ONLINE = ''
+      CC.FLG = ''
+      LUMP.LINES = ''
+      LUMP.VAT.RATE = ''
+      PLUSS.OR.DISC.% = ''
+      PROD.CODE = ''
+      REGION.CODE = ''
+      AREA.CODE = ''
+      ORDER.LINE.REC.KEY= ''
+      ORDER.LINE.ITEM = ''
+      POS.CUSTOMER.REC.KEY = ''
+      PF.PRODUCT.MASTER.REC.KEY = ''
+      LINE.CNT = ''
+      PAGE.NO = ''
+      BRANCH = ''
+      LST.BRANCH = ''
+      BRANCH.NME = ''
+      CURRENT.MTH = ''
+      NEXT.MTH = ''
+      RR.GEN.IND = ''
+      PAGE.DEPTH = ''
+      START.CURR.MTH = ''
+      START.LAST.MTH = ''
+      SEQ.NO = ''
+      ERRORS.PRINTED = ''
+      THIS.JOBNO = ''
+      MONTH.LETTERS = ''
+      MONTH.NUMBERS = ''
+      CSA.PRICE.SQ = ''
+      CSA.PRICE.UOM.SQ = ''
+      PROM.PRICE.SQ = ''
+      PROM.PRICE.UOM.SQ = ''
+      BSP.PRICE.SQ = ''
+      BSP.PRICE.UOM.SQ = ''
+      PRICE.SQ = ''
+      PRICE.UOM.SQ = ''
+      PROM.OBT.STATUS.SQ = ''
+      STAFF.PRICE.SQ = ''
+      TEMPLATE.PRICE.SQ = ''
+      TEMPLATE.PRICE.UOM.SQ = ''
+      TEMPLATE.BAND.SQ = '2'
+      TEMPLATE.DISC.SQ = ''
+      TEMPLATE.FLG.SQ = ''
+      TEMPLATE.KEY.SQ = ''
+      HSP.PRICE.UOM.SQ = ''
+      HSP.PRICE.SQ = ''
+      BRAND.PRICING.METHOD = ''
+      PRICING.ACCOUNT = ''
+      PRICING.DISCOUNT.SQ = ''
+      CSA.KEY.SQ = ''
+      PROM.KEY.SQ = ''
+      BRAND.FAILURE = 0
+      SURCHARGE.RATE = ""
+      DIRECT.PRICE = ""
+      DIRECT.PRICE.UOM = ""
+      GPC.AVERAGE.COST.ARRAY = ""
+      GPC.BRAND.COSTS.AND.PRICES.FLAGS.REC = ""
+      GPC.CPS.TRADE.RETAIL = ""
+      GPC.TRADE.PRICE.SQ = ""
+      GPC.DISPLAY.COST = ""
+      RETRIEVAL.CODE = ""
+      LINKED.TEMPLATE.PRICE.SQ = ""
+      LINKED.TEMPLATE.PRICE.UOM.SQ = ""
+      LINKED.TEMPLATE.KEY.SQ = ""
+      GPC.REHIRE.MIN.RATE = ""
+      GPC.TH.NO.MAN.OVERRIDE = ''
+      GPC.CPS.LIST.PRICE = ''
+      GPC.CPS.LIST.PRICE.UOM = ''
+      EPOS.BSS.MANDATORY.CONTRACT = ''
+      GPC.BRP.KEY = ''
+      GPC.BRP.PRICE.ARRAY = ''
+      GPC.BRP.UOM = ''
+      GPC.BRP.YARD.UNIT.COST.AND.UOM = ''
+      HIDE.COST.AND.PRICES = ''
+      GPC.BRP.RETAIL.OR.TRADE = ''
+      GPC.BRP.QUOTE.FLAG = ''
+* PG.COMMON vsariables
+      PG.COMM.BRN.PRICING.DATE = ''
+      PG.COMM.BRN.PRICING.ACTIVE = ''
+      PG.COMM.POPULATED.FOR.BRN.CODE = ''
+      PG.COMM.BRN.REG.CODE = ''
+      PG.COMM.DATE.PG.FILES.ACTIVE = ''
+      PG.COMM.CUSTOMER = ''
+      PG.COMM.CUSTOMER.SIZE.CODE = ''
+ *     PG.COMM.EXT.SUPPORT = ''; Cannot clear as PRC.DMAN.GET.PRODUCTS clears before processing
+      RETURN
+   END

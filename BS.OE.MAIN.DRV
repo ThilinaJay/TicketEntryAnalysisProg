@@ -1,0 +1,86 @@
+      PROGRAM BS.OE.MAIN.DRV
+      PROGRAM.NAME = "BS.OE.MAIN.DRV"
+*********************************************************************
+* Description
+* Initial menu driven routine for 'New' OE
+*
+*********************************************************************
+*
+* Author       :MPEAR
+* Date Written :21/01/02
+*
+*   Job #    Date   Inits Comments
+* ======== ======== ===== ========
+*    7452  21/01/02 MPEAR Original Version
+*   11264  03/09/02 delse Added extra parameter 'ORDER.MODE' in call to
+*                         'BS.OE.DRV' and changed call literal from
+*                         'AML.DESPATCH.MODE' to 'DESPATCH'
+*                         Added include to enable reset in non-remote
+*                         mode
+*   11515  20/03/03 jbrum Initialise new OEPC. common variable
+*   11759  17/12/03 ANDRM ORDER.MODE set to 'MANUAL' for entry
+*                        of a ticket linked to a manual ticket
+*   13462  18/06/08 JHUDS Set common for WMS
+* 15338r21 07/07/15 brrob PRB0004264 - Duplicate Ticket Numbers
+* 15367r22 07/01/15 connp PRB0004264 - add clear.common on entry and exit
+*                         flags to call of BS.OE.DRV when from Ticket entry
+*********************************************************************
+
+
+      INCLUDE DG-INCLUDES TCSTANDARD
+      INCLUDE INCLUDES BS.OE.PARAMS.COMMON
+      INCLUDE INCLUDES WMS.COMMON
+
+      HDR.KEY = ""
+
+      GOSUB INIT.COMMONS
+      GOSUB MAIN.PROG
+
+************
+* PROG.END *
+************
+
+      GOSUB INIT.COMMONS
+
+      STOP
+
+************************************************************************************
+**********
+MAIN.PROG:
+**********
+
+      BEGIN CASE
+
+         CASE (FIELD(@SENTENCE," ",2) = "DESPATCH")
+            CALL BS.OE.DRV(HDR.KEY,"DESPATCH","","","","","")
+
+         CASE (FIELD(@SENTENCE," ",2) = "MANUAL")
+            CALL BS.OE.DRV(HDR.KEY,"MANUAL","","","","","")
+
+         CASE 1
+            CLEAR.COMMONS.ON.ENTRY = 1
+            CLEAR.COMMONS.ON.EXIT = 1
+            CALL BS.OE.DRV(HDR.KEY,"","",CLEAR.COMMONS.ON.ENTRY,CLEAR.COMMONS.ON.EXIT,"","")
+
+      END CASE
+
+      RETURN
+
+************************************************************************************
+*************
+INIT.COMMONS:
+*************
+
+      CALL BS.OE.PARAMS.CLEAR.COMMON
+
+      OEPC.NATIONAL.SALES.ENTRY = ""
+      OEPC.SHARED.DIST.ENTRY = ""
+      OEPC.REMOTE.ORIGINAL.BRANCH = ""
+      CUST.WMS.FLAG = 0
+      WMS.CONTRACTOR = ""
+      WMS.CALL = ""
+
+      RETURN
+
+************************************************************************************
+   END

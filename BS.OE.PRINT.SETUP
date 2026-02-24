@@ -1,0 +1,420 @@
+      SUBROUTINE BS.OE.PRINT.SETUP(ERROR.CODE,ERROR.MSG,REMOTE.BRANCH,PRINT.PARAMETERS,SPARE1)
+      PROGRAM.NAME = "BS.OE.PRINT.SETUP"
+***************************************************************************************************
+* Description
+* -----------
+* Reads BRANCH-PARAMS into common.
+* Assigns queues to channels if not in transaction and not already there.
+***************************************************************************************************
+* ARGUMENTS
+* ---------
+*
+* REMOTE.BRANCH      In    Remote branch queue set to add to
+*                          current branch.
+*
+***************************************************************************************************
+*
+* Author       : John Woollam
+* Date Written : 2nd October 2002
+*
+*  Job #      Date    Inits  Comments
+* =======   ========  =====  ======================================================================
+* 11273     02/10/02  jwool  Original Version
+* 11273r3   05/12/02  jwool  BugFix remote queues not set up
+* 11403     31/01/03  jwool  Prevent spooler number display in phantoms.  Fixes undesired crt in
+*                            BS.REMOTE.IBT.PRINT
+* 11366     01/03/04  jwool  Add virtual slave to set up printers.
+* 12436r2   04/08/05  mderr  Fix code for remotes when the two branches are on different machines.
+*                            Tidy up into a new gosub.
+* 15778r16  03/12/25  pelli  Accommodate additional print parameters
+***************************************************************************************************
+
+      INCLUDE DG-INCLUDES TCSTANDARD
+      INCLUDE INCLUDES BS.OE.PARAMS.COMMON
+      INCLUDE INCLUDES BS.OE.USER.COMMON
+      INCLUDE INCLUDES BS.OE.PRINT.COMMON
+
+      COMMON /SP.ASSIGN.COMMON/ CHANNEL.FLAGS(256)
+
+
+***********
+* EQUATES *
+***********
+
+      INCLUDE INCLUDES EQU.TERMWORK
+      INCLUDE INCLUDES EQU.BRANCH.PARAMS.BRANCH.REC
+      INCLUDE INCLUDES EQU.BRANCH.PARAMS.USER.REC
+      INCLUDE INCLUDES EQU.BRN.DETAIL.DIM
+      INCLUDE INCLUDES EQU.BRANCH.TERMINAL.DIM
+
+      EQU start.channel TO 13
+      EQU stop.channel TO 1
+
+      EQU FALSE TO 0
+      EQU TRUE TO 1
+
+
+**************
+* FILE OPENS *
+**************
+
+      ACCOUNT.NAME = OCONV(@WHO,'MCU')
+      ERR = ''
+
+      INCLUDE INCLUDES OPEN.FILE.SY.PARAMS
+      INCLUDE INCLUDES OPEN.FILE.TERMWORK
+      INCLUDE INCLUDES OPEN.FILE.BRANCH.PARAMS
+      INCLUDE INCLUDES OPEN.FILE.SERVICE.DEFS
+      INCLUDE INCLUDES OPEN.FILE.BRN.DETAIL
+      INCLUDE INCLUDES OPEN.FILE.BRANCH.TERMINAL
+      INCLUDE INCLUDES OPEN.FILE.VOC
+
+      IF ERR NE '' THEN
+         FATAL.ERROR.MSG = "CANNOT OPEN FILES ":ERR
+         GOSUB FATAL.ERROR
+      END
+
+
+******************
+* INITIALISATION *
+******************
+
+      * needs to read termwork in case it is called before entry to new EPOS
+      INCLUDE INCLUDES BUILD.TOP.RIGHT
+      MATREAD TERMWORK.REC FROM TERMWORK.FV, PORT ELSE
+         FATAL.ERROR.MSG = "CANNOT READ TERMWORK ":PORT
+         GOSUB FATAL.ERROR
+      END
+
+      IF SYSTEM(25) THEN
+         INFORM = ""
+      END ELSE
+         INFORM = ", INFORM"
+      END
+
+* if the second mv is set then we are printing back at the originating branch
+      PCC.LOCAL.PRINT = ''
+      IF REMOTE.BRANCH<1,2> = "PRINT.AT.ORIG" THEN
+         PCC.LOCAL.PRINT = TRUE
+         REMOTE.BRANCH = REMOTE.BRANCH<1,1>
+      END
+
+      IF UNASSIGNED(PRINT.PARAMETERS) THEN
+         PRINT.PARAMETERS = ""
+      END
+
+      APOGEE.COPIES = PRINT.PARAMETERS<1>
+
+*************
+* MAIN PROG *
+*************
+
+      USER.SIG = TRM.BRN.CODE:'*':TRM.AUTH.ID
+
+      MATREAD BRN.DETAIL.REC FROM BRN.DETAIL.FV, TRM.BRN.CODE THEN
+         MATREAD BRANCH.PARAMS.BRANCH.REC FROM BRANCH.PARAMS.FV, TRM.BRN.CODE ELSE
+            MATREAD BRANCH.PARAMS.BRANCH.REC FROM BRANCH.PARAMS.FV, "DEFAULT*BRANCH" ELSE
+               MAT BRANCH.PARAMS.BRANCH.REC = ''
+            END
+         END
+
+         MATREAD BRANCH.PARAMS.USER.REC FROM BRANCH.PARAMS.FV, USER.SIG ELSE
+            MAT BRANCH.PARAMS.USER.REC = ''
+         END
+
+         GOSUB BUILD.PARAMS.QUEUE.LIST
+
+         CHANNEL = start.channel
+         PCOUNT = 1
+         PCC.22.QUEUE = ''
+         PCC.22.CHANNEL = ''
+
+         FORM.NAME = ''
+         COPIES = BPB.PAPER.COPIES.TICKET
+         IF NOT(COPIES) THEN
+            COPIES = 1
+         END
+
+* set up the print channels
+
+         READ SERVICE.DEFS.REC FROM SERVICE.DEFS.FV, BRN.ACCT.NME THEN
+            LOCATE '22' IN SERVICE.DEFS.REC<17> SETTING POS THEN
+               TYPE.22.LIST = RAISE(RAISE(SERVICE.DEFS.REC<18,POS>))
+               NO.QUEUES = DCOUNT(TYPE.22.LIST,AM)
+
+               FOR P = 1 TO NO.QUEUES
+                  QUEUE.NAME = TYPE.22.LIST<P>
+
+                  LOCATE QUEUE.NAME IN PARAMS.QUEUE.LIST SETTING NOTHING THEN
+                     IF CHANNEL >= stop.channel THEN
+                        PRINTER CLOSE ON CHANNEL
+                        USEROPTS = ""
+
+                        IF APOGEE.COPIES <> "" THEN
+                           USEROPTS = ", USEROPTS COPIES=" : APOGEE.COPIES
+                        END
+
+                        SENTENCE = "TPSETPTR ":CHANNEL:",132,66,3,3,1,AT ":QUEUE.NAME:", FORM ":FORM.NAME:", COPIES ":COPIES:", NORETAIN, NOKEEP, BRIEF, NHEAD, NOEJECT, NFMT":INFORM:USEROPTS
+                        PERFORM SENTENCE CAPTURING OUTPUT
+* prevent SP-ASSIGN overwriting this setting
+                        CHANNEL.FLAGS(CHANNEL + 1) = TRUE
+
+* set common
+                        PCC.22.QUEUE<PCOUNT> = QUEUE.NAME
+                        PCC.22.CHANNEL<PCOUNT> = CHANNEL
+
+* inc indexes
+                        PCOUNT += 1
+                        CHANNEL -= 1
+                     END
+                  END
+               NEXT P
+            END
+         END
+      END
+
+      IF REMOTE.BRANCH # '' THEN
+
+* Preserve 'LocaL' branch flags
+         LOCAL.CODS = BPB.CODS
+
+* no need to set up pcount and channel as they are residual from the previous loop
+         MATREAD BRN.DETAIL.REC FROM BRN.DETAIL.FV, REMOTE.BRANCH THEN
+
+            MATREAD BRANCH.PARAMS.BRANCH.REC FROM BRANCH.PARAMS.FV, REMOTE.BRANCH ELSE
+               MAT BRANCH.PARAMS.BRANCH.REC = ''
+            END
+
+* Reset 'Target' branch specific parameter(s)
+            BPB.CODS = LOCAL.CODS
+
+            MATREAD BRANCH.PARAMS.USER.REC FROM BRANCH.PARAMS.FV, REMOTE.BRANCH:'*':TRM.AUTH.ID ELSE
+               MAT BRANCH.PARAMS.USER.REC = ''
+            END
+
+            GOSUB BUILD.PARAMS.QUEUE.LIST
+
+            FORM.NAME = ''
+            COPIES = BPB.PAPER.COPIES.TICKET
+            IF NOT(COPIES) THEN
+               COPIES = 1
+            END
+
+            READV THIS.MACHINE FROM SY.PARAMS.FV, 'SY.MACHINE', 3 THEN
+               IF THIS.MACHINE # BRN.MACH.NME AND PCC.LOCAL.PRINT THEN
+                  Q.REC = "Q"
+                  Q.REC<2> = BRN.MACH.NME[1,1]:BRN.MACH.NME[5,1]:":MNDATA"
+                  Q.REC<3> = "SERVICE.DEFS"
+                  WRITE Q.REC ON VOC.FV,"Q.SERVICE.DEFS.":PORT
+                  OPEN "Q.SERVICE.DEFS.":PORT TO ORIG.SERVICE.DEFS.FV ELSE
+                     FATAL.ERROR.MSG = "UNABLE TO OPEN SERVICE.DEFS FILE ON MACHINE ":BRN.MACH.NME
+                     GOSUB FATAL.ERROR
+                  END
+                  READ SERVICE.DEFS.REC FROM ORIG.SERVICE.DEFS.FV, BRN.ACCT.NME THEN
+                     GOSUB SET.UP.LIST.OF.QUEUES
+                  END
+               END ELSE
+                  READ SERVICE.DEFS.REC FROM SERVICE.DEFS.FV, BRN.ACCT.NME THEN
+                     GOSUB SET.UP.LIST.OF.QUEUES
+                  END
+               END
+            END
+         END
+      END
+
+      PCC.SET = USER.SIG:REMOTE.BRANCH
+
+      RETURN
+
+*********************************************************************
+**********************
+SET.UP.LIST.OF.QUEUES:
+**********************
+
+      LOCATE '22' IN SERVICE.DEFS.REC<17> SETTING POS THEN
+         TYPE.22.LIST = RAISE(RAISE(SERVICE.DEFS.REC<18,POS>))
+         NO.QUEUES = DCOUNT(TYPE.22.LIST,AM)
+
+         FOR P = 1 TO NO.QUEUES
+            QUEUE.NAME = TYPE.22.LIST<P>
+            LOCATE QUEUE.NAME IN PARAMS.QUEUE.LIST SETTING NOTHING THEN
+               IF THIS.MACHINE # BRN.MACH.NME THEN
+                  * set remote machine queue
+                  QUEUE.NAME = DOWNCASE(BRN.MACH.NME):'!':QUEUE.NAME
+               END
+
+               LOCATE QUEUE.NAME IN PCC.22.QUEUE SETTING NOTHING ELSE
+                  IF CHANNEL >= stop.channel THEN
+                     PRINTER CLOSE ON CHANNEL
+                     PERFORM "TPSETPTR ":CHANNEL:",132,66,3,3,1,AT ":QUEUE.NAME:", FORM ":FORM.NAME:", COPIES ":COPIES:", NORETAIN, NOKEEP, BRIEF, NHEAD, NOEJECT, NFMT":INFORM CAPTURING OUTPUT
+
+* prevent SP-ASSIGN overwriting this setting
+                     CHANNEL.FLAGS(CHANNEL + 1) = TRUE
+
+* set common
+                     PCC.22.QUEUE<PCOUNT> = QUEUE.NAME
+                     PCC.22.CHANNEL<PCOUNT> = CHANNEL
+                     PCOUNT += 1
+                     CHANNEL -= 1
+                  END
+               END
+            END
+         NEXT P
+      END
+
+      RETURN
+
+*********************************************************************
+************************
+BUILD.PARAMS.QUEUE.LIST:
+************************
+
+* build user queue list
+      PARAMS.QUEUE.LIST = ''
+
+      NO.VAL = DCOUNT(BPU.PRINT.WORKSLIP.PRINTER,VM)
+      FOR VAL = 1 TO NO.VAL
+         IF BPU.PRINT.WORKSLIP.PRINTER<1,VAL> THEN
+            LOCATE BPU.PRINT.WORKSLIP.PRINTER<1,VAL> IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+               INS BPU.PRINT.WORKSLIP.PRINTER<1,VAL> BEFORE PARAMS.QUEUE.LIST<1>
+            END
+         END
+      NEXT VAL
+
+      NO.VAL = DCOUNT(BPU.PRINT.ADVICE.PRINTER,VM)
+      FOR VAL = 1 TO NO.VAL
+         IF BPU.PRINT.ADVICE.PRINTER<1,VAL> THEN
+            LOCATE BPU.PRINT.ADVICE.PRINTER<1,VAL> IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+               INS BPU.PRINT.ADVICE.PRINTER<1,VAL> BEFORE PARAMS.QUEUE.LIST<1>
+            END
+         END
+      NEXT VAL
+
+      NO.VAL = DCOUNT(BPU.PRINT.INVOICE.PRINTER,VM)
+      FOR VAL = 1 TO NO.VAL
+         IF BPU.PRINT.INVOICE.PRINTER<1,VAL> THEN
+            LOCATE BPU.PRINT.INVOICE.PRINTER<1,VAL> IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+               INS BPU.PRINT.INVOICE.PRINTER<1,VAL> BEFORE PARAMS.QUEUE.LIST<1>
+            END
+         END
+      NEXT VAL
+
+      IF BPU.PRINT.DEFAULT.PRINTER THEN
+         LOCATE BPU.PRINT.DEFAULT.PRINTER IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+            INS BPU.PRINT.DEFAULT.PRINTER BEFORE PARAMS.QUEUE.LIST<1>
+         END
+      END
+
+      NO.VAL = DCOUNT(BPB.PRINT.WORKSLIP.PRINTER,VM)
+      FOR VAL = 1 TO NO.VAL
+         IF BPB.PRINT.WORKSLIP.PRINTER<1,VAL> THEN
+            LOCATE BPB.PRINT.WORKSLIP.PRINTER<1,VAL> IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+               INS BPB.PRINT.WORKSLIP.PRINTER<1,VAL> BEFORE PARAMS.QUEUE.LIST<1>
+            END
+         END
+      NEXT VAL
+
+      NO.VAL = DCOUNT(BPB.PRINT.ADVICE.PRINTER,VM)
+      FOR VAL = 1 TO NO.VAL
+         IF BPB.PRINT.ADVICE.PRINTER<1,VAL> THEN
+            LOCATE BPB.PRINT.ADVICE.PRINTER<1,VAL> IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+               INS BPB.PRINT.ADVICE.PRINTER<1,VAL> BEFORE PARAMS.QUEUE.LIST<1>
+            END
+         END
+      NEXT VAL
+
+      NO.VAL = DCOUNT(BPB.PRINT.INVOICE.PRINTER,VM)
+      FOR VAL = 1 TO NO.VAL
+         IF BPB.PRINT.INVOICE.PRINTER<1,VAL> THEN
+            LOCATE BPB.PRINT.INVOICE.PRINTER<1,VAL> IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+               INS BPB.PRINT.INVOICE.PRINTER<1,VAL> BEFORE PARAMS.QUEUE.LIST<1>
+            END
+         END
+      NEXT VAL
+
+      IF BPB.PRINT.DEFAULT.PRINTER THEN
+         LOCATE BPB.PRINT.DEFAULT.PRINTER IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+            INS BPB.PRINT.DEFAULT.PRINTER BEFORE PARAMS.QUEUE.LIST<1>
+         END
+      END
+
+      IF BPU.PRINT.ALT.SLAVE.PRINTER THEN
+         LOCATE BPU.PRINT.ALT.SLAVE.PRINTER IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+            INS BPU.PRINT.ALT.SLAVE.PRINTER BEFORE PARAMS.QUEUE.LIST<1>
+         END
+      END
+
+      IF BPB.PRINT.ALT.SLAVE.PRINTER THEN
+         LOCATE BPB.PRINT.ALT.SLAVE.PRINTER IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+            INS BPB.PRINT.ALT.SLAVE.PRINTER BEFORE PARAMS.QUEUE.LIST<1>
+         END
+      END
+
+      IF BPB.REMOTE.TICKET.DEFAULT.PRINTER THEN
+         LOCATE BPB.REMOTE.TICKET.DEFAULT.PRINTER IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+            INS BPB.REMOTE.TICKET.DEFAULT.PRINTER BEFORE PARAMS.QUEUE.LIST<1>
+         END
+      END
+
+      NO.VAL = DCOUNT(BPB.REMOTE.TICKET.BRANCH.PRINTER,VM)
+      FOR VAL = 1 TO NO.VAL
+         IF BPB.REMOTE.TICKET.BRANCH.PRINTER<1,VAL> THEN
+            LOCATE BPB.REMOTE.TICKET.BRANCH.PRINTER<1,VAL> IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+               INS BPB.REMOTE.TICKET.BRANCH.PRINTER<1,VAL> BEFORE PARAMS.QUEUE.LIST<1>
+            END
+         END
+      NEXT VAL
+
+      IF BPB.REMOTE.IBT.DEFAULT.PRINTER THEN
+         LOCATE BPB.REMOTE.IBT.DEFAULT.PRINTER IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+            INS BPB.REMOTE.IBT.DEFAULT.PRINTER BEFORE PARAMS.QUEUE.LIST<1>
+         END
+      END
+
+      NO.VAL = DCOUNT(BPB.REMOTE.IBT.BRANCH.PRINTER,VM)
+      FOR VAL = 1 TO NO.VAL
+         IF BPB.REMOTE.IBT.BRANCH.PRINTER<1,VAL> THEN
+            LOCATE BPB.REMOTE.IBT.BRANCH.PRINTER<1,VAL> IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+               INS BPB.REMOTE.IBT.BRANCH.PRINTER<1,VAL> BEFORE PARAMS.QUEUE.LIST<1>
+            END
+         END
+      NEXT VAL
+
+      IF TRM.SOURCE.NETB # "" AND TRM.SOURCE.TYPE = "PC" THEN
+         * read source term data from file
+         MATREAD BRANCH.TERMINAL.REC FROM BRANCH.TERMINAL.FV, TRM.SOURCE.NETB ELSE
+            MAT BRANCH.TERMINAL.REC = ''
+         END
+         * if no data then request from user
+         IF BT.VIRTUAL.SLAVE.PRINTER = "" THEN
+            * request choice from user
+            CALL BS.BRANCH.TERMINAL.MAINT
+            * read source term data from file
+            MATREAD BRANCH.TERMINAL.REC FROM BRANCH.TERMINAL.FV, TRM.SOURCE.NETB ELSE
+               MAT BRANCH.TERMINAL.REC = ''
+            END
+         END
+         * add vsp to printers list
+         IF BT.VIRTUAL.SLAVE.PRINTER # "" THEN
+            LOCATE BT.VIRTUAL.SLAVE.PRINTER IN PARAMS.QUEUE.LIST SETTING NOTHING ELSE
+               INS BT.VIRTUAL.SLAVE.PRINTER BEFORE PARAMS.QUEUE.LIST<1>
+            END
+         END
+      END
+
+      RETURN
+
+*********************************************************************
+************
+FATAL.ERROR:
+************
+
+      ERROR.CODE = -1
+      ERROR.MSG<-1> = FATAL.ERROR.MSG
+
+HERE: RETURN TO HERE
+
+*********************************************************************
+      INCLUDE INCLUDES TRANS.BOUNDS.QUIET
+*********************************************************************
+   END

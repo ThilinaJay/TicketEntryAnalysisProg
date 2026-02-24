@@ -1,0 +1,255 @@
+      SUBROUTINE BS.BRP.IS.BRP.ACTIVE(BRANCH.CODE, IN.PROD.CODE, IN.DATE,
+         IS.BRP.ACTIVE, INACTIVE.REASON, ERROR, ERROR.MESSAGE,
+         OUT.USE.PG.FILES,
+         SPARE4, SPARE3, SPARE2, SPARE1)
+      PROGRAM.NAME = "BS.BRP.IS.BRP.ACTIVE"
+
+*********************************************************************
+* Description
+*------------
+* Subroutine to check whether a branch is using the price
+* guidance engine and, optionally, check whether product uses
+* price guidance.
+*********************************************************************
+*   BRANCH.CODE (I)   - The branch code of the branch passed in that
+*                       is being checked.
+*
+*  IN.PROD.CODE (I)   - The product code - fed in to check for
+*                       exclusions (optional)
+*
+*       IN.DATE (I)   - Interal date passed in to check whether
+*                       BRP was active on that date. Pass in
+*                       '' for today.
+*
+* IS.BRP.ACTIVE (O)   - The flag to tell whether the branch is on
+*                       business rules pricing or not. (values Y or N)
+*
+*         ERROR (O)   - Whether there was an error or not. Passes back
+*                       1 for true.
+*
+* ERROR.MESSAGE (O)   - A message that passes back any errors encountered
+*                       or null if successful.
+*
+* OUT.USE.PG.FILES(0) - Set to true (1) if PG files should be used.
+*                       Otherwise, set to false (0)
+*
+*********************************************************************
+*
+* Author       : Sean O'Toole
+* Date Written : 18/04/2013
+*
+* Job #    Date   Inits Comments
+* ======== ======== ===== ========
+* 15094r01 18/04/13 seoto Original Version
+* 15094r03 30/09/13 mherr Ensured that date is not passed back to
+*                   calling program.
+* 15193r02 20/01/14 sdobb Move branch processing to
+*                         PG.IS.PG.ACTIVE.FOR.BRANCH,
+*                         add OUT.USE.PG.FILES
+* 15355r09 05/10/15 dhend Allow price guidance for non-discountable products
+*                         in quotes
+* 15526r05  1/12/16 wallj Non discountable processing for BRP
+*                   /mgamb
+* 15526r28 20/04/17 wephi US28745 - Should return "N" if non-discountable
+*                  /wallj           and called from CM.GETPRICE.M
+* 15526r30 12/05/17 darwo Resolve issue of Remotes pointing BS-BRANCH-STOCK
+* DE4026                  to PRICING.BRANCH and not the Supplying branch
+* 15547r32 30/08/17 brrob PRB0005903 - Flexlink pricing issue
+* 15723r01 21/02/23 hafer FINMOD #20.3 No price guidance on temp products
+* 15604r76 19/08/24 wallj Correct non-discountable processing, for item that
+*                         is not in stock.
+*********************************************************************
+      DEFFUN GET.CALLER CALLING "UTIL.GET.CALLING.PROGRAM.NAME"
+***********
+* EQUATES *
+***********
+
+      EQU NULL TO ''
+      EQU FALSE TO 0
+      EQU TRUE TO 1
+
+************
+* INCLUDES *
+************
+      INCLUDE INCLUDES PG.COMMON
+      INCLUDE INCLUDES EQU.PF.PRODUCT.MASTER.REC
+      INCLUDE INCLUDES EQU.BRN.DETAIL.DIM
+      INCLUDE INCLUDES GETPRICE.COMMON
+**************
+* FILE OPENS *
+**************
+
+      ACCOUNT.NAME = OCONV(@WHO,'MCU')
+      ERR = ''
+      ERROR = ''
+      ERROR.MESSAGE = ''
+
+      INCLUDE INCLUDES OPEN.FILE.PF.PRODUCT.MASTER
+      INCLUDE INCLUDES OPEN.FILE.BRN.DETAIL
+
+      IF ERR THEN
+         FATAL.ERROR.MSG = "CANNOT OPEN FILES ":ERR
+         GOSUB FATAL.ERROR
+         RETURN
+      END
+
+******************
+* INITIALISATION *
+******************
+      IF UNASSIGNED(IN.PROD.CODE) THEN IN.PROD.CODE = ""
+
+      LOCAL.PROD.CODE = IN.PROD.CODE
+
+      IF UNASSIGNED(INACTIVE.REASON) THEN INACTIVE.REASON = ''
+
+      IN.QUOTE = ''
+      FINDSTR 'SQ.LINE.MAINT' IN SYSTEM(9001) SETTING QPOS THEN
+         IN.QUOTE = TRUE
+      END
+
+      MATREAD BRN.DETAIL.REC FROM BRN.DETAIL.FV, BRANCH.CODE ELSE
+         MAT BRN.DETAIL.REC = ''
+      END
+      CALLING.PROG = GET.CALLER()
+
+      OUT.DATA = ""
+      ERRORS = ""
+      IN.DATA = "DUMP.CODE.REMOVAL"
+      CALL FINMOD.FUNCTIONALITY(IN.DATA,OUT.DATA,ERRORS)
+      CUTOVER.FLAG = OUT.DATA<1,1>
+
+*******
+
+      GOSUB MAIN.PROGRAM
+
+*******
+* END *
+*******
+
+      RETURN
+
+*********************************************************************
+*************
+MAIN.PROGRAM:
+*************
+
+      IF CALLING.PROG = "CM.GETPRICE.M" THEN
+         IF GPC.PRICING.BRAND # BRN.BRAND[2,1] THEN
+            IS.BRP.ACTIVE = "N"
+            RETURN
+         END
+      END
+
+      CALL PG.IS.PG.ACTIVE.FOR.BRANCH(BRANCH.CODE,
+         IN.DATE, RETURNED.IS.PG.ACTIVE.FOR.BRANCH,
+         OUT.USE.PG.FILES, ERROR,
+         ERROR.MESSAGE,"","","","","")
+
+      IF ERROR OR RETURNED.IS.PG.ACTIVE.FOR.BRANCH = FALSE THEN
+         IS.BRP.ACTIVE = "N"
+         RETURN
+      END
+
+      IS.BRP.ACTIVE = "Y"
+      IF LOCAL.PROD.CODE # "" THEN
+         GOSUB CHECK.PRODUCT.EXCLUSIONS
+      END
+
+      RETURN
+
+*********************************************************************
+*************************
+CHECK.PRODUCT.EXCLUSIONS:
+*************************
+
+      GOSUB CHECK.VARIABLE.PRICE.PRODUCT
+
+      IF IS.BRP.ACTIVE = "Y" AND CUTOVER.FLAG THEN
+         GOSUB CHECK.TEMP.PRODUCT
+      END
+
+      IF IS.BRP.ACTIVE = "Y" THEN
+         IF CALLING.PROG NE "CM.GETPRICE.M" AND NOT(IN.QUOTE) THEN
+            GOSUB CHECK.NON.DISCOUNTABLE
+         END
+      END
+
+      RETURN
+
+*********************************************************************
+*****************************
+CHECK.VARIABLE.PRICE.PRODUCT:
+*****************************
+
+      READV VARIABLE.PRICE.PRODUCT FROM PF.PRODUCT.MASTER.FV,LOCAL.PROD.CODE,164 THEN
+         IF VARIABLE.PRICE.PRODUCT = 'Y' THEN
+            IS.BRP.ACTIVE = "N"
+            INACTIVE.REASON = "NO GUIDANCE IS AVAILABLE FOR VARIABLE PRICED PRODUCTS"
+         END
+      END
+
+      RETURN
+
+*********************************************************************
+*******************
+CHECK.TEMP.PRODUCT:
+*******************
+
+      READV TEMP.PROD.FLAG FROM PF.PRODUCT.MASTER.FV, LOCAL.PROD.CODE, 142 THEN
+         IF TEMP.PROD.FLAG = "Y" THEN
+            IS.BRP.ACTIVE = "N"
+            INACTIVE.REASON = "NO GUIDANCE IS AVAILABLE FOR TEMPORARY PRODUCTS"
+         END
+      END
+      RETURN
+*********************************************************************
+***********************
+CHECK.NON.DISCOUNTABLE:
+***********************
+      INACTIVE.REASON = ""
+      CALL CHECK.NON.DISCOUNTABLE.ALLOWED(BRANCH.CODE, NON.DISC.ALLOWED)
+      NON.DISC = NULL
+      CSA.ALLOW = NULL
+      CALL BS.CHECK.NON.DISCOUNTABLE(LOCAL.PROD.CODE,PG.COMM.BRN.REG.CODE,
+         DISC.STATUS,NON.DISC,CSA.ALLOW,BRANCH.CODE,"","","","","")
+
+      IF NON.DISC.ALLOWED THEN
+         DAMAGED.INDICATOR = ORDER.LINE.REC(63)
+         IF NOT(IN.QUOTE) AND DAMAGED.INDICATOR = "Y" THEN
+            NON.DISC = ""
+         END
+
+      END
+      IF NON.DISC = "Y" AND NOT(IN.QUOTE) THEN
+         IS.BRP.ACTIVE = "N"
+         INACTIVE.REASON = "NO GUIDANCE IS AVAILABLE FOR NON-DISCOUNTABLE PRODUCTS"
+      END
+** this code ensures that the correct retail price is always returned in Ticket Entry
+**
+      IF CALLING.PROG = "CM.GETPRICE.M" THEN
+         IS.BRP.ACTIVE = "Y"
+         INACTIVE.REASON = ""
+      END
+
+      RETURN
+*********************************************************************
+***********************
+CHECK.FOR.DEAD.PRODUCT:
+***********************
+
+      PRODUCT.DEAD = FALSE
+
+      CALL BS.CHECK.PRODUCT.DEAD(LOCAL.PROD.CODE, BRANCH.CODE, MAT PF.PRODUCT.MASTER.REC,MAT BRN.DETAIL.REC, CORE.FLAG,PRODUCT.DEAD,ERR)
+
+      RETURN
+**********************************************************************
+************
+FATAL.ERROR:
+************
+
+      CALL SY.FATAL.ERROR.DRV(PROGRAM.NAME,FATAL.ERROR.MSG)
+
+      RETURN
+
+**********************************************************************
+   END

@@ -1,0 +1,56 @@
+      PROGRAM BS.OE.USER.CLEAR.COMMON
+      PROGRAM.NAME = "BS.OE.USER.CLEAR.COMMON"
+
+*********************************************************************
+* Description
+* -----------------------------
+* Clear named common used in order entry
+* for user info
+*********************************************************************
+*
+* Author       : mpear
+* Date Written : 15/02/02
+*
+* Job #   Date   Inits Comments
+* ===== ======== ===== ========
+*  7452 15/02/02 mpear Original Version
+* 12014 27/07/04 dickp Add in clear for display cost
+* 14377r1 18/10/10 tadle Add clear for OEUC.STORED.COST.COMMONS
+*********************************************************************
+
+      INCLUDE DG-INCLUDES TCSTANDARD
+
+      EQU TRUE TO 1
+      EQU FALSE TO 0
+      EQU NULL TO ""
+      EQU DLIM TO '*'
+      EQU EOL TO CLEOL
+      EQU EOS TO CLEOS
+
+      INCLUDE INCLUDES BS.OE.USER.COMMON
+
+*********************************************************************
+MAIN.PROG:
+
+      OEUC.ALLOWED.TO.FOC.AUTH = ''
+      OEUC.ALLOWED.TO.AUTH = ''
+      OEUC.ALLOWED.TO.REPRINT.WORKSLIP = ''
+      OEUC.ALLOWED.TO.REPRINT.DELIVERY = ''
+      OEUC.ALLOWED.TO.REPRINT.INVOICE = ''
+      OEUC.ALLOWED.TO.REPRINT.COD = ''
+      MAT BRANCH.PARAMS.USER.REC = ''
+      OEUC.VIEW.OR.AMEND.COST.LEVEL = 0
+      OEUC.DOCS.PRINTED = ""
+** 12014 dickp start
+      OEUC.DISPLAY.COST.LEVEL = ""
+** 12014 dickp end
+* 14377r1 18/10/10 - TADLE start
+      OEUC.STORED.COST.COMMONS = ""
+* 14377r1 18/10/10 - TADLE end
+      RETURN
+
+*********************************************************************
+      INCLUDE INCLUDES TRANS.BOUNDS
+*********************************************************************
+   END
+*********************************************************************

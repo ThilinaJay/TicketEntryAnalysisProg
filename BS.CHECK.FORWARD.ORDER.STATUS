@@ -1,0 +1,156 @@
+      SUBROUTINE BS.CHECK.FORWARD.ORDER.STATUS(BRAND,BRANCH,FWD.ENABLED,ERROR.MSG,SPARE5,SPARE4,SPARE3,SPARE2,SPARE1)
+      PROGRAM.NAME = "BS.CHECK.FORWARD.ORDER.STATUS"
+
+*********************************************************************
+* Description
+* Returns whether forward ordering is enabled in a Branch
+*
+*********************************************************************
+*
+* Author       : Terry Deering
+* Date Written : 20/07/2011
+*
+*  Job #     Date   Inits Comments
+* ======== ======== ===== ========
+* 14600r1  20/07/11 tdeer Original Version
+*
+*********************************************************************
+*
+* Returns whether a Branch is enabled for forward ordering according to
+* the following rules:-
+*  If BRANCH is enabled, returns 'Y'
+*  If BRANCH disabled then returns 'N'
+*  If Null then checks BRAND for Enabled or not
+*
+*********************************************************************
+*
+* PARAM 1 - IN  - Brand to check
+* PARAM 2 - IN  - Branch to check
+* PARAM 3 - OUT - Is Forward ordering enabled
+* PARAM 4 - OUT - Error message. No errors will cause a fatal error.
+*                 If an error is encountered a logging subroutine is called,
+*                 the enabled indicator is set to false and the error description
+*                 returned to the calling program.
+*********************************************************************
+
+      INCLUDE INCLUDES APP.DEFFUN.INCLUDES
+      INCLUDE DG-INCLUDES TCSTANDARD
+      INCLUDE INCLUDES MN.TERMWORK.COMMON
+
+***********
+* EQUATES *
+***********
+
+      EQU TRUE TO 1
+      EQU FALSE TO 0
+      EQU NULL TO ""
+      EQU DLIM TO '*'
+      EQU EOL TO CLEOL
+      EQU EOS TO CLEOS
+
+************
+* INCLUDES *
+************
+
+      INCLUDE INCLUDES EQU.TERMWORK
+      INCLUDE INCLUDES EQU.BRAND.DETAIL.DIM
+      INCLUDE INCLUDES EQU.BRN.DETAIL.DIM
+
+**************
+* FILE OPENS *
+**************
+
+      ACCOUNT.NAME = OCONV(@WHO,'MCU')
+      ERR = ''
+      ERROR.MSG = ''
+
+      INCLUDE INCLUDES OPEN.FILE.TERMWORK
+      INCLUDE INCLUDES OPEN.FILE.SY.PARAMS
+      INCLUDE INCLUDES OPEN.FILE.SCREENS
+      INCLUDE INCLUDES OPEN.FILE.BRN.DETAIL
+      INCLUDE INCLUDES OPEN.FILE.BRAND.DETAIL
+
+      IF ERR NE '' THEN
+         ERROR.MSG = "CANNOT OPEN FILES ":ERR
+      END
+
+      IF ERROR.MSG = '' THEN GOSUB MAIN.PROG
+
+*********************************************************************
+*********
+PROG.END:
+*********
+
+      RETURN
+
+*********************************************************************
+**********
+MAIN.PROG:
+**********
+
+      GOSUB INITIALISATION
+
+      IF ERROR.MSG = '' THEN GOSUB PROCESS
+
+      RETURN
+
+*********************************************************************
+***************
+INITIALISATION:
+***************
+
+      EXT.TODAY = OCONV(DATE(),'D4/')
+
+      INCLUDE INCLUDES BUILD.TOP.RIGHT
+      INCLUDE INCLUDES COMMON.SCREEN
+
+      MATREAD TERMWORK.REC FROM TERMWORK.FV,PORT ELSE
+         ERROR.MSG = "CANNOT READ ":PORT:" FROM TERMWORK FILE"
+      END
+
+********
+* ETC
+********
+
+      FWD.ENABLED = FALSE
+      RETURN
+
+**********************************************************************
+********
+PROCESS:
+********
+*
+* Check branch rec then if not 'Y' or 'N' check brand rec
+*
+      BEGIN CASE
+         CASE BRANCH # '' AND BRAND # ''
+            MATREAD BRN.DETAIL.REC FROM BRN.DETAIL.FV,BRANCH ELSE MAT BRN.DETAIL.REC = ''
+            BEGIN CASE
+               CASE BRN.FORWARD.ORDER.ENABLED = 'Y'
+                  FWD.ENABLED = TRUE
+               CASE BRN.FORWARD.ORDER.ENABLED = 'N'
+               CASE 1
+                  *** BRD.FORWARD.ORDER.ENABLED ***
+                  IF FUNC.BRAND.CHECK(BRAND,'','57','','','','') THEN
+                     FWD.ENABLED = TRUE
+                  END
+            END CASE
+         CASE BRAND # ''
+            *** BRD.FORWARD.ORDER.ENABLED ***
+            IF FUNC.BRAND.CHECK(BRAND,'','57','','','','') THEN
+               FWD.ENABLED = TRUE
+            END
+         CASE BRANCH # ''
+            MATREAD BRN.DETAIL.REC FROM BRN.DETAIL.FV,BRANCH ELSE MAT BRN.DETAIL.REC = ''
+            IF BRN.FORWARD.ORDER.ENABLED = 'Y' THEN
+               FWD.ENABLED = TRUE
+            END
+      END CASE
+
+      RETURN
+
+*********************************************************************
+      INCLUDE INCLUDES TRANS.BOUNDS
+*********************************************************************
+   END
+*********************************************************************

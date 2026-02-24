@@ -1,0 +1,266 @@
+      SUBROUTINE BS.COST.ACCESS(USER.ID,COST.LEVEL,DISP.COST.LEVEL,WEBMODE,SPARE3,SPARE4,SPARE5,SPARE6)
+      PROGRAM.NAME = "BS.COST.ACCESS"
+*********************************************************************
+* Description
+* -----------------------------
+* Used instead of ACCESS.AUTH
+* Returns a cost level for a given user
+*
+* 12014 dickp start
+* DISP.COST.LEVEL - Populated if a false display cost is needed. This level
+* should be passed into GET.PRODUCT.COST as the user.level
+* 12014 dickp end
+* WEBMODE - If called from web enter branch code here
+*********************************************************************
+*
+* Author       : JNSMI
+* Date Written : 16/12/99
+*
+*  Job #   Date   Inits Comments
+* ====== ======== ===== ========
+* 10233  16/12/99 jnsmi Original Version
+* 10825  21/09/01 mpear Add in atkins brand.
+* 11336  16/04/03 jwool Separate CCF brand from Keyline.
+* 11664  29/09/03 jbrum Only set TP default to "3"!
+* 12014  07/07/04 dickp Check whether a fake display cost is required
+* 12080  22/11/04 pkerr Added a web mode so can be called from redback
+*                       without checking @logname etc
+* 12188  01/02/05 andrm Don't go into CHECK.DISP.COST if from web
+*********************************************************************
+      INCLUDE DG-INCLUDES TCSTANDARD
+
+***********
+* EQUATES *
+***********
+
+      EQU TRUE TO 1
+      EQU FALSE TO 0
+      EQU NULL TO ""
+      EQU DLIM TO '*'
+      EQU EOL TO CLEOL
+      EQU EOS TO CLEOS
+
+************
+* INCLUDES *
+************
+
+      INCLUDE INCLUDES EQU.TERMWORK
+      INCLUDE INCLUDES EQU.BS.VIEW.OR.AMEND.COSTS.DIM
+** 12014 dickp start
+      INCLUDE INCLUDES EQU.BRN.DETAIL.DIM
+** 12014 dickp end
+
+**************
+* FILE OPENS *
+**************
+      ACCOUNT.NAME = OCONV(@WHO,'MCU')
+      ERR = ''
+*
+* Warning - When batch processing, pointing from one account to each branch
+*           account, use the normal OPEN statement rather than the INCLUDE.
+*
+      INCLUDE INCLUDES OPEN.FILE.TERMWORK
+      INCLUDE INCLUDES OPEN.FILE.SY.PARAMS
+      INCLUDE INCLUDES OPEN.FILE.BRN.DETAIL
+      INCLUDE INCLUDES OPEN.FILE.BS.VIEW.OR.AMEND.COSTS
+
+      IF ERR NE '' THEN
+         FATAL.ERROR.MSG = "CANNOT OPEN FILES ":ERR
+         GOSUB FATAL.ERROR
+      END
+
+      GOSUB MAIN.PROG
+
+      RETURN
+*********************************************************************
+**********
+MAIN.PROG:
+**********
+
+      GOSUB INITIALISATION
+*      IF BRN.BRAND[2,1] = "K" THEN    ;* 10825 mpear - change field to price ind
+
+* 11336 jwool - separate CCF from Keyline
+*      IF BRN.PRICE.IND = "K" THEN
+*         BVAC.KEY = "KL*":UPCASE(@LOGNAME)
+*      END ELSE
+*         BVAC.KEY = "TP*":UPCASE(@LOGNAME)
+*      END
+
+** 12014 dickp start
+*      READV BRN.BRAND FROM BRN.DETAIL.FV, BRN.CODE, 65 ELSE
+*         BRN.BRAND = ''
+*      END
+** 12014 dickp end
+
+      BRAND = BRN.BRAND[2,1]
+      IF BRAND = '' THEN
+         BRAND = 'T'
+      END
+
+      FIND BRAND IN BRAND.LETTERS<1> SETTING NOTHING,POS ELSE
+         * default to T brand
+         FIND 'T' IN BRAND.LETTERS<1> SETTING NOTHING,POS ELSE
+            * just use the first one which is tp anyway
+            POS = 1
+         END
+      END
+*12080 - PKERR - start
+      IF WEBMODE = "" THEN
+         REAL.LOGNAME = @LOGNAME
+      END ELSE
+         REAL.LOGNAME = USER.ID
+      END
+      BVAC.KEY = BRAND.KEYS<1,POS>:'*':UPCASE(REAL.LOGNAME)
+*12080 - PKERR - end
+* 11336 jwool end
+
+      MATREAD BS.VIEW.OR.AMEND.COSTS.REC FROM BS.VIEW.OR.AMEND.COSTS.FV,BVAC.KEY THEN
+         IF BVAC.COST.LEVEL # "" THEN
+            COST.LEVEL = BVAC.COST.LEVEL
+* 11664  29/09/03 jbrum Start
+            IF BRAND.KEYS<1,POS> = "CP" THEN       ; * ONLY 1 & 3 valid for CPS
+               IF COST.LEVEL = 2 THEN COST.LEVEL = 1
+            END
+*
+         END ELSE
+*            IF BRN.BRAND[2,1] = "K" THEN ;*10825 - changed field to look at price indicator
+* 11336 jwool - separate CCF from Keyline
+*            IF BRN.PRICE.IND = "K" THEN
+****        IF BRAND = 'K' THEN
+* 11336 jwool end
+****           COST.LEVEL = "1"          ; * KL DEFAULT
+****        END ELSE
+****           COST.LEVEL = "3"          ; * TP DEFAULT
+****        END
+            IF BRAND.KEYS<1,POS> = "TP" THEN
+               COST.LEVEL = "3"          ; * TP DEFAULT
+            END ELSE
+               COST.LEVEL = "1"          ; * OTHER BRAND DEFAULT
+            END
+* 11664  29/09/03 jbrum End
+         END
+      END ELSE
+         COST.LEVEL = "0"
+      END
+
+** 12014 dickp start
+**** 12188 andrm - start
+      IF WEBMODE = "" THEN
+**** 12188 andrm - finish
+         GOSUB CHECK.DISP.COST
+**** 12188 andrm - start
+      END
+**** 12188 andrm - finish
+** 12014 dickp end
+
+      RETURN
+
+*********************************************************************
+***************
+INITIALISATION:
+***************
+
+      EXT.TODAY = OCONV(DATE(),'D4/')
+
+      INCLUDE INCLUDES BUILD.TOP.RIGHT
+
+*12080 - PKERR - start
+      IF WEBMODE = "" THEN
+         MATREAD TERMWORK.REC FROM TERMWORK.FV,PORT ELSE
+            FATAL.ERROR.MSG = "CANNOT READ ":PORT:" FROM TERMWORK FILE"
+            GOSUB FATAL.ERROR
+         END
+
+         BRN.CODE = TRM.BRN.CODE
+      END ELSE
+         BRN.CODE = WEBMODE
+      END
+*12080 - PKERR - end
+**10825 mpear start
+*      READV BRN.BRAND FROM BRN.DETAIL.FV,BRN.CODE,65 ELSE
+*         BRN.BRAND = "TT"
+*      END
+* 11336 jwool - separate CCF from Keyline
+*      READV BRN.PRICE.IND FROM BRN.DETAIL.FV,BRN.CODE,77 ELSE
+*         BRN.PRICE.IND = "T"
+*      END
+      READ COST.BRAND.TABLE FROM SY.PARAMS.FV, "COST.BRAND.TABLE" ELSE
+         FATAL.ERROR.MSG = "CANNOT READ COST.BRAND.TABLE FROM SY.PARAMS"
+         GOSUB FATAL.ERROR
+      END
+      BRAND.KEYS = COST.BRAND.TABLE<1>
+      BRAND.LETTERS = COST.BRAND.TABLE<2>
+* 11336 jwool end
+** 10825 end
+********
+* ETC
+********
+      GET.OUT = ''
+      MODE = ''
+
+** 12014 dickp start
+      MATREAD BRN.DETAIL.REC FROM BRN.DETAIL.FV, BRN.CODE ELSE
+         FATAL.ERROR.MSG = "CANNOT OPEN BRN-DETAIL FOR BRANCH " : BRN.CODE
+         GOSUB FATAL.ERROR
+      END
+
+      RETURN
+
+*********************************************************************
+****************
+CHECK.DISP.COST:
+****************
+      IF BRN.HIDE.AVERAGE.AT.POS = 'Y' AND BRN.USE.AVERAGE.COST = 'Y' THEN
+         BEGIN CASE
+            CASE COST.LEVEL = 2
+               DISP.COST.LEVEL = 2
+            CASE COST.LEVEL = 3
+               IF (BRN.AUTO.INVOICE.CONFIRM.AT.PRT = "Y") OR (BRN.AUTO.INVOICE.CONFIRM = "Y") THEN
+                  DISP.COST.LEVEL = ""
+               END ELSE
+
+                  IF USER.ID = '' THEN
+                     USER.ID = TRM.CURR.USER
+                  END
+                  CALL ACCESS.AUTH(USER.ID,"OMR",EI)
+                  IF NOT(EI) THEN
+                     DISP.COST.LEVEL = 3
+                  END ELSE
+                     DISP.COST.LEVEL = ""
+                  END
+               END
+            CASE 1
+               DISP.COST.LEVEL = ""
+         END CASE
+      END ELSE
+         DISP.COST.LEVEL = ""
+      END
+
+      RETURN
+** 12014 dickp end
+
+*********************************************************************
+************
+FATAL.ERROR:
+************
+
+      CRT CURSOR.ON:
+      VAR = ''
+
+      VAR<1,1> = "V1"
+      VAR<1,2> = PROGRAM.NAME
+      VAR<1,3> = DATE()
+      VAR<1,4> = TIME()
+      VAR<2> = FATAL.ERROR.MSG
+      VAR<-1> = "!"
+
+      DATA VAR
+      CHAIN "SY.FATAL.ERROR"
+
+      RETURN
+
+*********************************************************************
+      INCLUDE INCLUDES TRANS.BOUNDS
+*********************************************************************
+   END

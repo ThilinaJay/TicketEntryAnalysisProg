@@ -1,0 +1,1938 @@
+      PROGRAM CLAIMBACK.REPORT.GENERATION
+      PROGRAM.NAME = "CLAIMBACK.REPORT.GENERATION"
+
+*********************************************************************
+* Description
+*  A new system which will validate the data entered and then mail will be
+*  sent with the report consisting of the valid details
+*
+*********************************************************************
+*
+* Author       : Sumathy Jaganathan
+* Date Written : 12/04/2011
+*
+*  Job #     Date     Inits Comments
+* ======== ========   ===== ========
+* 14463r23 12/04/2011 SUMAJ Original Version
+* 14463r27 20/06/2011 LMATH Creation of internal claimbacks across machines for national branches
+* 15711r85 21/10/2022 isude Replaced hard coded customer validation with dynamic
+*********************************************************************
+      INCLUDE DG-INCLUDES TCSTANDARD
+      INCLUDE INCLUDES MN.TERMWORK.COMMON
+***********
+* EQUATES *
+***********
+
+      EQU TRUE TO 1
+      EQU FALSE TO 0
+      EQU NULL TO ""
+      EQU DLIM TO '*'
+      EQU EOL TO CLEOL
+      EQU EOS TO CLEOS
+
+************
+* INCLUDES *
+************
+
+      INCLUDE INCLUDES EQU.TERMWORK
+      INCLUDE INCLUDES EQU.BRN.DETAIL.DIM
+      INCLUDE INCLUDES EQU.POS.CUSTOMER
+      INCLUDE INCLUDES MASKS.COMMON
+      INCLUDE INCLUDES PR.COMMON
+      INCLUDE INCLUDES EQU.PF.PRODUCT.MASTER.DIM
+      INCLUDE INCLUDES TRANS.BOUNDS
+
+**************
+* FILE OPENS *
+**************
+
+      ACCOUNT.NAME = OCONV(@WHO,'MCU')
+      ERR = ''
+      INCLUDE INCLUDES OPEN.FILE.TERMWORK
+      INCLUDE INCLUDES OPEN.FILE.SY.PARAMS
+      INCLUDE INCLUDES OPEN.FILE.SCREENS
+      INCLUDE INCLUDES OPEN.FILE.BRN.DETAIL
+      INCLUDE INCLUDES OPEN.FILE.POS.CUSTOMER
+      INCLUDE INCLUDES OPEN.FILE.CASH.CUSTOMER
+      INCLUDE INCLUDES OPEN.FILE.PF.PRODUCT.MASTER
+      INCLUDE INCLUDES OPEN.FILE.MAIL.USERS
+      INCLUDE INCLUDES OPEN.FILE.CLAIMBACK.REPORT.DETAIL
+      INCLUDE INCLUDES OPEN.FILE.VOC
+      INCLUDE INCLUDES OPEN.FILE.UV.ACCOUNT
+      
+      IF ERR NE '' THEN
+         FATAL.ERROR.MSG = "CANNOT OPEN FILES ":ERR
+         GOSUB FATAL.ERROR
+      END
+
+      GOSUB MAIN.PROG
+
+*********************************************************************
+*********
+PROG.END:
+*********
+
+***BEWARE - this should be RETURN in a subroutine !!!!!!
+
+      STOP
+
+*********************************************************************
+**********
+MAIN.PROG:
+**********
+
+      CRT CURSOR.OFF:
+
+      GOSUB INITIALISATION
+      IF PROCEED.FLAG THEN
+         GOSUB READ.AND.DISPLAY.SCREEN
+         GOSUB GET.BRANCH.DETAILS
+         BRANCH.INITIAL.DESC = BRANCH.DESC
+         GOSUB PAGE.NO.SET
+         LOOP
+            GOSUB GET.INPUTS
+            IF NOT(GET.OUT) THEN
+               GOSUB DO.LINE.SELECTION.AND.ACTION
+            END
+         UNTIL GET.OUT DO
+         REPEAT
+      END
+      CRT CURSOR.ON:
+
+      RETURN
+
+*********************************************************************
+***************
+INITIALISATION:
+***************
+
+      EXT.TODAY = OCONV(DATE(),'D4/')
+
+      INCLUDE INCLUDES BUILD.TOP.RIGHT
+      INCLUDE INCLUDES COMMON.SCREEN
+
+      MATREAD TERMWORK.REC FROM TERMWORK.FV,PORT THEN
+      END ELSE
+         FATAL.ERROR.MSG = "CANNOT READ ":PORT:" FROM TERMWORK FILE"
+         GOSUB FATAL.ERROR
+      END
+
+      READV MACHINE.NAME FROM SY.PARAMS.FV, "SY.MACHINE",3 ELSE
+         FATAL.ERROR.MSG = "CANNOT READ SY.MACHINE FROM SY-PARAMS FILE"
+         GOSUB FATAL.ERROR
+      END
+
+      READ BRANCH.DATA FROM SY.PARAMS.FV,"CLAIMBACK.NATIONAL.BRANCHES" ELSE
+         FATAL.ERROR.MSG<-1> = "SY.PARAMS CLAIMBACK.NATIONAL.BRANCES"
+         GOSUB FATAL.ERROR
+      END
+
+********
+* ETC
+********
+      TEMP.CUST.CODE.ARR = ''
+      EMAIL.ADDR1 = ''
+      USER.EMAIL = ''
+      TEMP.CUST.NAME.ARR = ''
+      GET.OUT = ''
+      MODE = ''
+      TEMP.VAL = ''
+      BRANCH.VALUE = ''
+      BRANCH.VALUE = TRM.BRN.CODE
+      OLD.BRANCH.CODE = BRANCH.VALUE
+      BRANCH.INI = BRANCH.VALUE
+      BRANCH.INITIAL = BRANCH.INI
+      OLD.BRANCH.DESC = ''
+      BRANCH.CODE.ARR = ''
+      BRANCH.DESC.ARR = ''
+      BRANCH.NAME = ''
+      LINE.NUM = ''
+      CHOICE = ''
+      BRANCH.DESC = ''
+      CUSTOMER.CODE = ''
+      NEXT.LINE = FALSE
+      CUST.CODE = ''
+      EMAIL.ADDR = ''
+      SCREEN.SIZE = 14
+      CUST.NAME = ''
+      SCREEN.START = 6
+      SCR.LINE.NO = 6
+      LINE.NO =1
+      SCREEN.END = 20
+      PAGE.NO = 1
+      PGE.VAL = ''
+      LAST.PAGE.NO = 1
+      MAX.LIMIT = 999
+      CNT = ''
+      MOD1 = 1
+      CNT1 = ''
+      ERR.FLG = ''
+      ADD.END = ''
+      OLD.PROD.CODE = ''
+      OLD.PROD.DESC = ''
+      OLD.QTY = ''
+      OLD.COMP.PRICE = ''
+      OLD.COMP.NAME = ''
+      OLD.CUSTOMER.CODE = ''
+      OLD.CUST.NAME = ''
+      OLD.EMAIL.ADDRESS=''
+      PROD.CODE =''
+      POS.SELECT = 4
+      DATA.ARR = ''
+      HEADER.DETAILS = ''
+      REPORT.DETAILS = ''
+      DISP.LINE = ''
+      REGION.CODE = ''
+      MAJOR.RANGE = ''
+      MAJOR.RANGE.ARR = ''
+      CLEAR.FLAG = FALSE
+      CSV.DATA = ''
+      TERM.BRN.CODE = ''
+      CLAIM.REF.NEXT = ''
+      BRN.CODE.REF = ''
+      PROD.CODE.ARR = ''
+      PROD.DESC.ARR = ''
+      QTY.ARR = ''
+      COMP.PRICE.ARR = ''
+      COMP.NAME.ARR = ''
+      CUST.CODE.ARR = ''
+      CUST.NAME.ARR = ''
+      EMAIL.ADDR.ARR = ''
+      PARTS.FLAG = FALSE
+      CSV.LINE = ''
+      TOTAL.NO.REQUEST = ''
+      HIGHER.RNG = 1
+      VALIDATE.PRICE ='1N':@VM:'2N':@VM:'3N':@VM:'4N'
+      VALIDATE.PRICE :=@VM:'0N.0N':@VM:'0N.1N':@VM:'0N.2N':@VM:'0N.3N':@VM:'0N.4N':@VM:'0N.5N':@VM:'0N.6N'
+      VALIDATE.PRICE :=@VM:'1N.0N':@VM:'1N.1N':@VM:'1N.2N':@VM:'1N.3N':@VM:'1N.4N':@VM:'1N.5N'
+      VALIDATE.PRICE :=@VM:'0N':@VM:'2N.0N':@VM:'2N.1N':@VM:'2N.2N':@VM:'2N.3N':@VM:'2N.4N'
+      VALIDATE.PRICE :=@VM:'0N':@VM:'3N.0N':@VM:'3N.1N':@VM:'3N.2N':@VM:'3N.3N'
+      VALIDATE.PRICE :=@VM:'0N':@VM:'4N.0N':@VM:'4N.1N':@VM:'4N.2N'
+      PROCEED.FLAG = ''
+      REPLY = ''
+      EMAIL.TO = ''
+      IF MACHINE.NAME[1,3] = "DEV" THEN
+         TESTING = TRUE
+      END ELSE
+         TESTING = FALSE
+      END
+      OLD.PROD.CODE.ARR = ''
+      CURR.PROD.CODE.ARR = ''
+      POS = ''
+
+      IF MACHINE.NAME[1,3] = "POS" OR TESTING THEN
+         PROCEED.FLAG = TRUE
+      END ELSE
+         CALL ERR("THIS PROGRAM CAN BE RUN ONLY ON POS MACHINES","")
+      END
+
+      RETURN
+
+*********************************************************************
+************************
+READ.AND.DISPLAY.SCREEN:
+************************
+
+      SCREEN.NAME = "$":PROGRAM.NAME
+      READ SCREEN.1 FROM SCREENS.FV,SCREEN.NAME ELSE
+         FATAL.ERROR.MSG = "CANNOT READ ":SCREEN.NAME:" FROM SCREENS FILE"
+         GOSUB FATAL.ERROR
+      END
+
+      PART.SCREEN.NAME = "%":PROGRAM.NAME
+      READ SCREEN.1.PARTS FROM SCREENS.FV,PART.SCREEN.NAME ELSE
+         FATAL.ERROR.MSG = "CANNOT READ ":PART.SCREEN.NAME:" FROM SCREENS FILE"
+         GOSUB FATAL.ERROR
+      END
+
+      COMMON.SCREEN.NAME = "#":PROGRAM.NAME
+      READ SCREEN.1.COMMON FROM SCREENS.FV,COMMON.SCREEN.NAME ELSE
+         FATAL.ERROR.MSG = "CANNOT READ ":COMMON.SCREEN.NAME:" FROM SCREENS FILE"
+         GOSUB FATAL.ERROR
+      END
+
+      CRT.VAR = SCREEN.1:@(1,0):EXT.TODAY:TOP.RIGHT
+      CRT CRT.VAR
+
+      SC.CURR = SCREEN.1.COMMON
+
+      RETURN
+
+************************************************************************
+**********************
+SET.UP.SELECTION.LINE:
+**********************
+******************************
+* Set up line selection data *
+******************************
+      SEL.PROMPT = ''
+      CHOICE = ''
+      SEL.DELIM = CHAR(124)
+      ACTIVATE = 'Y'                     ; * To turn arrow keys on and off
+      SEL.POS = POS.SELECT               ; * Default option
+      SECONDARY.FORMAT = ''
+      SEL.POPUP.POS = ""
+      SEL.DISABLE = ""
+      SEL.NUMBER.POPUP = ""
+      FILE.POS = 1
+      LINE.POS = 2
+      QUIT.POS = 6
+      ADD.POS = 4
+      DEL.POS = 5
+      CHANGE.POS = 3
+      PREV.POS = 7
+      NEXT.POS = 8
+      GOTO.POS = 9
+
+      LOWER.RNG = ((PAGE.NO - 1) * SCREEN.SIZE)+1
+      IF PAGE.NO = LAST.PAGE.NO THEN
+         HIGHER.RNG = DCOUNT(DATA.ARR,AM)
+      END ELSE
+         HIGHER.RNG = LOWER.RNG + SCREEN.SIZE - 1
+      END
+
+      SEL.WORDS = "File":VM:"Line":VM:"Change":VM:"Add":VM:"Delete":VM:"Quit":VM:"Prev":VM:"Next":VM:"Goto"
+      SEL.ABBRV = "F":VM:"L":VM:"C":VM:"A":VM:"D":VM:"Q":VM:"P":VM:"N":VM:"G"
+      SEL.RTNS = "FILE":VM:"LINE":VM:"CHANGE":VM:"ADD":VM:"DELETE":VM:"QUIT":VM:"PREV":VM:"NEXT":VM:"GOTO"
+      SEL.HELP = "Save details and email the report"
+      SEL.HELP<1,2> = "Enter a line number to amend"
+      IF BRANCH.VALUE = BRANCH.INITIAL AND NOT(CONTINUE.FLG) THEN
+         SEL.HELP<1,3> = "Change the customer and email address"
+      END ELSE
+         SEL.HELP<1,3> = "Change the branch, customer and email address"
+      END
+      SEL.HELP<1,4> = "Add a new line"
+      SEL.HELP<1,5> = "Delete a line"
+      SEL.HELP<1,6> = "Exit without saving the details"
+      SEL.HELP<1,7> = "Previous Page"
+      SEL.HELP<1,8> = "Next Page"
+      SEL.HELP<1,9> = "Go to a specific page"
+      LINE.COUNT =DCOUNT(DATA.ARR,@AM)   ; *  set this to the last line on the screen
+      LOWER.RNG = 1
+      HIGHER.RNG = LINE.COUNT
+      SEL.PROMPT<1,LINE.POS> = "Enter Line Number To Amend : "
+      SEL.PROMPT<2,LINE.POS> = "R#":LEN(HIGHER.RNG)
+      SEL.PROMPT<3,LINE.POS> = ""
+      SEL.PROMPT<4,LINE.POS> = "0N"
+      SEL.PROMPT<5,LINE.POS> = 0
+      SEL.PROMPT<6,LINE.POS> = 0
+      SEL.PROMPT<7,LINE.POS> = "Enter Line Number In The Range ":LOWER.RNG:" To ":HIGHER.RNG
+      SEL.PROMPT<8,LINE.POS> = LOWER.RNG:"*":HIGHER.RNG
+      SECONDARY.FORMAT<1,LINE.POS> = ""
+
+      LOWER.RNG = 1
+      HIGHER.RNG = LINE.COUNT
+      SEL.PROMPT<1,DEL.POS> = "Enter Line Number To delete: "
+      SEL.PROMPT<2,DEL.POS> = "R#":LEN(HIGHER.RNG)
+      SEL.PROMPT<3,DEL.POS> = ""
+      SEL.PROMPT<4,DEL.POS> = "0N"
+      SEL.PROMPT<5,DEL.POS> = 0
+      SEL.PROMPT<6,DEL.POS> = 0
+      SEL.PROMPT<7,DEL.POS> = "Enter Line Number In The Range ":LOWER.RNG:" To ":HIGHER.RNG
+      SEL.PROMPT<8,DEL.POS> = LOWER.RNG:"*":HIGHER.RNG
+      SECONDARY.FORMAT<1,DEL.POS> = ""
+
+      LOWER.RNG = 1
+      HIGHER.RNG = LAST.PAGE.NO
+      SEL.PROMPT<1,GOTO.POS> = "Enter page number to go to : "
+      SEL.PROMPT<2,GOTO.POS> = "L#":LEN(HIGHER.RNG)
+      SEL.PROMPT<3,GOTO.POS> = ""
+      SEL.PROMPT<4,GOTO.POS> = "0N"
+      SEL.PROMPT<5,GOTO.POS> = 0
+      SEL.PROMPT<6,GOTO.POS> = 0
+      SEL.PROMPT<7,GOTO.POS> = "Enter page number in the Range ":LOWER.RNG:" To ":HIGHER.RNG
+      SEL.PROMPT<8,GOTO.POS> = LOWER.RNG:"*":HIGHER.RNG
+      SECONDARY.FORMAT<1,GOTO.POS> = ""
+      RETURN
+
+*********************************************************************
+***********
+GET.INPUTS:
+***********
+
+      IF MODE EQ 'C' THEN FIELD.NO = 0
+      FIELD.NO = 0
+      CTL = ''
+      END.OF.INPUTS = FALSE
+      LOOP UNTIL END.OF.INPUTS DO
+         BEGIN CASE
+            CASE CTL = '/'
+               IF FIELD.NO = 1 THEN
+                  FIELD.NO = 0
+                  IF SCR.LINE.NO = SCREEN.START AND PAGE.NO = LAST.PAGE.NO AND MODE # "C" AND TOTAL.NO.REQUEST>=1 THEN
+                     PAGE.NO = PAGE.NO -1
+                     GOSUB DISPLAY.DETAILS
+                     END.OF.INPUTS = TRUE
+                     GET.OUT = TRUE
+                  END ELSE
+                     FIELD.NO = 0
+                     IF MODE # '' THEN
+                        CALL TPCRT(12,2,OLD.CUSTOMER.CODE,'Y','','','','','')
+                        CALL TPCRT(49,2,OLD.CUST.NAME"L#25",'Y',-4,1,'','','')
+                        CALL TPCRT(12,1,OLD.BRANCH.DESC"L#40",'Y',-4,1,'','','')
+                        IF BRANCH.INITIAL = BRANCH.VALUE THEN
+                           CONTINUE.FLG = TRUE
+                        END
+                     END
+                  END
+               END ELSE
+                  IF MODE EQ 'C' THEN
+                     FIELD.NO = 1
+                  END ELSE
+                     IF FIELD.NO > 4 THEN
+                        FIELD.NO = 4
+                        CALL TPCRT(6,SCR.LINE.NO,'','',-4,'','','','')
+                        PROD.CNT.ARR = DCOUNT(PROD.CODE.ARR,@VM)
+                        MR.CNT = DCOUNT(MAJOR.RANGE.ARR,@VM)
+                        OLD.MAJOR.RANGE = MAJOR.RANGE.ARR<LINE.NO,1>
+                        OLD.PROD.CODE = DATA.ARR<LINE.NO,1>
+                        IF OLD.PROD.CODE # PROD.CODE THEN
+                           DEL PROD.CODE.ARR<1,PROD.CNT.ARR>
+                        END
+                        IF OLD.MAJOR.RANGE # MAJOR.RANGE THEN
+                           DEL MAJOR.RANGE.ARR<1,PROD.CNT.ARR>
+                        END
+                        OLD.PROD.DESC = DATA.ARR<LINE.NO,2>
+                        OLD.QTY = DATA.ARR<LINE.NO,3>
+                        OLD.COMP.PRICE = DATA.ARR<LINE.NO,4>
+                        OLD.COMP.NAME = DATA.ARR<LINE.NO,5>
+                        CALL TPCRT(2,SCR.LINE.NO,'','',-4,'','','','')
+                        LINE.NUM = LINE.NO
+                        GOSUB CAL.SPACE
+                        DISP.LINE = LINE.NO"R%3":SPACE(2):DATA.ARR<LINE.NO,1>"L#6":SPACE(2):DATA.ARR<LINE.NO,2>"L#25":SPACE(PROD.SP):DATA.ARR<LINE.NO,3>'R#6':SPACE(PRICE.SP):DATA.ARR<LINE.NO,4>'MD20':SPACE(COMP.NAME.SP):DATA.ARR<LINE.NO,5>"L#20"
+                        CALL TPCRT(2,SCR.LINE.NO,DISP.LINE,'','','','','','')
+                     END ELSE
+                        IF FIELD.NO = 4 THEN
+                           FIELD.NO = 0
+                           IF SCR.LINE.NO = SCREEN.START AND PAGE.NO = LAST.PAGE.NO AND MODE # "C" AND TOTAL.NO.REQUEST > 1 THEN
+                              IF MODE = '' OR MODE = 'A' THEN
+                                 PAGE.NO = PAGE.NO -1
+                              END
+                              GOSUB DISPLAY.DETAILS
+                           END
+                        END ELSE
+                           FIELD.NO = 1
+                           GOSUB CLEAR.CUST.DETAILS
+                        END
+                     END
+                  END
+               END
+
+            CASE CTL = '<'
+               FIELD.NO = FIELD.NO - 1
+
+            CASE CTL = '.'
+               FIELD.NO = 999
+
+            CASE 1
+               FIELD.NO = FIELD.NO + 1
+         END CASE
+
+         CTL = ''
+
+         BEGIN CASE
+            CASE FIELD.NO = 0
+               END.OF.INPUTS = TRUE
+
+            CASE FIELD.NO = 1
+               IF (NOT(NEXT.LINE) OR MODE EQ 'C' AND ((CONTINUE.FLG) OR (BRANCH.INITIAL # BRANCH.VALUE))) THEN
+                  GOSUB GET.BRANCH.CODE
+               END
+            CASE FIELD.NO = 2
+               IF NOT(NEXT.LINE) OR MODE EQ 'C' THEN
+                  GOSUB GET.CUSTOMER.DETAILS
+               END
+            CASE FIELD.NO = 3
+               IF NOT(NEXT.LINE) OR MODE EQ 'C' THEN
+                  GOSUB GET.EMAIL.ADDRESS
+               END
+            CASE FIELD.NO = 4
+               GOSUB GET.PRODUCT
+            CASE FIELD.NO = 5
+               GOSUB GET.QUANTITY
+            CASE FIELD.NO = 6
+               GOSUB GET.COMP.PRICE
+            CASE FIELD.NO = 7
+               GOSUB GET.COMP.NAME
+            CASE FIELD.NO > 7
+               GOSUB CLEAR.OLD.VALUES
+               END.OF.INPUTS = TRUE
+         END CASE
+      REPEAT
+      RETURN
+
+*********************************************************************
+*****************************
+DO.LINE.SELECTION.AND.ACTION:
+*****************************
+
+      INPUT.OK = FALSE
+      LOOP UNTIL INPUT.OK DO
+         GOSUB SET.UP.SELECTION.LINE
+         GOSUB SEL.LINE.CONTROL
+         CTL = ''
+
+         CRT CURSOR.ON:
+         CALL LINE.SELECTION.2D(0,22,CHOICE,SEL.POS,SEL.WORDS,SEL.ABBRV,SEL.RTNS,SEL.HELP,SEL.DELIM,CTL,"","",SEL.PROMPT,ACTIVATE,SECONDARY.FORMAT,"",SEL.POPUP.POS,SEL.DISABLE,SEL.NUMBER.POPUP,"","","","","","","")
+         CRT CURSOR.OFF:
+
+         POS.SELECT = SEL.POS<1,1>
+         BEGIN CASE
+            CASE CHOICE = "FILE"
+               GOSUB OPEN.MACH.FILE
+               GOSUB GET.NEXT.REF.CODE
+               IF READ.SUCCESS THEN
+                  GOSUB WRITE.REQUEST.DETAILS
+                  IF WRITE.COMPLETE THEN
+                     CALL TPCRT(15,22,'Generating Report. Please wait...','',-4,"N",'','','')
+                     GOSUB BUILD.OUTPUT.LINES
+                     GOSUB INIT.CSV
+                     GOSUB OPEN.CSV
+                     IF NOT(ERR.FLG) THEN
+                        GOSUB WRITE.SUB.HEADING
+                        IF NOT(ERR.FLG) THEN
+                           GOSUB WRITE.CSV
+                           GOSUB CLOSE.CSV
+                           CALL TPCRT(15,22,'Sending email with report. Please wait...','',-4,"N",'','','')
+                           GOSUB SEND.EMAIL
+                           CALL TPCRT(0,22,'','',-4,"N",'','','')
+                           INPUT.OK = TRUE
+                           FIELD.NO = 0
+                           GET.OUT = TRUE
+                        END
+                     END
+                  END
+               END
+
+            CASE CHOICE<1,1> = "LINE"
+               OLD.PROD.CODE.ARR = PROD.CODE.ARR
+               MODE = 'L'
+               FIELD.NO = CHOICE<1,2> - 1
+               LINE.NO = CHOICE<1,2>
+               OLD.DATA.ARR = ''
+               OLD.MAJOR.RANGE.ARR = ''
+               OLD.PROD.CODE = DATA.ARR<LINE.NO,1>
+               OLD.PROD.DESC = DATA.ARR<LINE.NO,2>
+               OLD.QTY = DATA.ARR<LINE.NO,3>
+               OLD.COMP.PRICE = DATA.ARR<LINE.NO,4>
+               OLD.COMP.NAME = DATA.ARR<LINE.NO,5>
+               OLD.MAJOR.RANGE.ARR = MAJOR.RANGE.ARR<LINE.NO,1>
+               OLD.DATA.ARR = OLD.PROD.CODE :@VM:OLD.PROD.DESC:@VM: OLD.QTY:@VM:OLD.COMP.PRICE:@VM: OLD.COMP.NAME
+               OLD.DATA.ARR = DATA.ARR
+               OLD.MAJOR.RANGE.ARR = MAJOR.RANGE.ARR
+               IF MOD(LINE.NO,SCREEN.SIZE) = 0 THEN
+                  SCR.LINE.NO = SCREEN.SIZE + SCREEN.START -1
+               END ELSE
+                  SCR.LINE.NO = MOD(LINE.NO,SCREEN.SIZE)+SCREEN.START -1
+               END
+               IF MOD(LINE.NO,SCREEN.SIZE) = 0 THEN
+                  PAGE.NUM = INT(LINE.NO/14)
+               END ELSE
+                  PAGE.NUM = INT(LINE.NO/14) + 1
+               END
+               PAGE.NO = PAGE.NUM
+               GOSUB DISPLAY.DETAILS
+               LAST.CNT = DCOUNT(DATA.ARR,@AM)
+               LAST.MR.CNT = DCOUNT(MAJOR.RANGE.ARR,@VM)
+               TEMP.ARR = DATA.ARR<LINE.NO>
+               OLD.DATA.ARR = DATA.ARR
+               OLD.MAJOR.RANGE.ARR = MAJOR.RANGE.ARR
+               GOSUB GET.INPUTS
+               LAST.CNT = DCOUNT(DATA.ARR,@AM)
+               LAST.MR.CNT = DCOUNT(MAJOR.RANGE.ARR,@VM)
+               IF OLD.DATA.ARR # DATA.ARR THEN
+                  DATA.CNT = DCOUNT(DATA.ARR,@AM)
+                  INS DATA.ARR<DATA.CNT> BEFORE DATA.ARR<LINE.NO>
+                  DEL DATA.ARR<LINE.NO+1>
+                  LAST.CNT = DCOUNT(DATA.ARR,@AM)
+                  DEL DATA.ARR<LAST.CNT>
+               END
+               IF OLD.MAJOR.RANGE.ARR # MAJOR.RANGE.ARR THEN
+                  MR.CNT = DCOUNT(MAJOR.RANGE.ARR,@VM)
+                  INS MAJOR.RANGE.ARR<1,MR.CNT> BEFORE MAJOR.RANGE.ARR<1,LINE.NO>
+                  DEL MAJOR.RANGE.ARR<1,LINE.NO+1>
+                  LAST.MR.CNT = DCOUNT(MAJOR.RANGE.ARR,@VM)
+                  DEL MAJOR.RANGE.ARR<1,LAST.MR.CNT>
+               END
+               GOSUB DISPLAY.DETAILS
+
+            CASE CHOICE = "ADD"
+               MODE = 'A'
+               LINE.NO = DCOUNT(DATA.ARR,@AM)
+               IF MOD(LINE.NO,SCREEN.SIZE) = 0 THEN
+                  SCR.LINE.NO = SCREEN.SIZE + SCREEN.START -1
+               END ELSE
+                  SCR.LINE.NO = MOD(LINE.NO,SCREEN.SIZE)+SCREEN.START -1
+               END
+               GOSUB CLEAR.OLD.VALUES
+               GOSUB NEXT.PAGE
+
+            CASE CHOICE = 'QUIT'
+               REPLY = ''
+               CONFIRM = "ARE YOU SURE YOU WANT TO QUIT(Y/N)?"
+               CALL BS.OE.ARE.YOU.SURE(CONFIRM,REPLY,'1','','','','','')
+               IF REPLY = 'Y' THEN
+                  GOSUB TO.EXIT
+               END
+               ELSE
+                  SEL.POS = POS.SELECT
+               END
+
+            CASE CHOICE<1,1> = "CHANGE"
+               MODE = 'C'
+               LINE.NO = CHOICE<1,2>
+               HDR.CNT = DCOUNT(HEADER.DETAILS,@AM)
+               OLD.BRANCH.DESC = HEADER.DETAILS<HDR.CNT,1>
+               OLD.BRANCH.CODE = LEFT(OLD.BRANCH.DESC,4)
+               OLD.CUSTOMER.CODE = HEADER.DETAILS<HDR.CNT,2>
+               OLD.CUST.NAME.DESC = HEADER.DETAILS<HDR.CNT,3>
+               OLD.EMAIL.ADDRESS = HEADER.DETAILS<HDR.CNT,4>
+               GOSUB GET.INPUTS
+
+            CASE CHOICE<1,1> = "DELETE"
+               MODE = 'D'
+               FIELD.NO = CHOICE<1,2>-1
+               LINE.NO =CHOICE<1,2>
+               IF LINE.NO > 1 AND DATA.ARR<LINE.NO + 1> = '' THEN
+                  PGE.VAL = LINE.NO -1
+               END ELSE
+                  PGE.VAL = LINE.NO
+               END
+               DEL PROD.CODE.ARR<1,LINE.NO>
+               DEL MAJOR.RANGE.ARR<1,LINE.NO>
+               DEL DATA.ARR<LINE.NO>
+
+               PGE =((PGE.VAL)/SCREEN.SIZE)
+               PGE.NO = INT(PGE)
+               MOD1 = MOD((PGE.VAL),SCREEN.SIZE)
+               PGE = PGE - PGE.NO
+               IF PGE > 0 AND MOD1 # 0 THEN
+                  PAGE.NO = PGE.NO + 1
+               END ELSE
+                  PAGE.NO = PGE.NO
+               END
+               GOSUB DISPLAY.DETAILS
+
+            CASE CHOICE = "NEXT"
+               PAGE.NO = PAGE.NO +1
+               GOSUB DISPLAY.DETAILS
+
+            CASE CHOICE = "PREV"
+               PAGE.NO = PAGE.NO -1
+               GOSUB DISPLAY.DETAILS
+
+            CASE CHOICE<1,1> = "GOTO"
+               PAGE.NO = CHOICE<1,2>
+               GOSUB DISPLAY.DETAILS
+
+            CASE 1
+               CALL ERR("ERROR WITH LINE.SELECTION ...... <RTN>",'')
+
+         END CASE
+
+      REPEAT
+
+      RETURN
+
+*********************************************************************
+*********
+TO.EXIT:
+*********
+      END.OF.INPUTS = TRUE
+      INPUT.OK = TRUE
+      FIELD.NO =0
+      GET.OUT = TRUE
+      RETURN
+
+*************************************************************************************
+******************
+GET.BRANCH.DETAILS:
+******************
+      BRANCH.READ = FALSE
+      BRANCH.TEST = BRANCH.VALUE
+      LOCATE BRANCH.TEST IN BRANCH.DATA<1> SETTING POS THEN
+         CONTINUE.FLG = TRUE
+      END ELSE
+         CONTINUE.FLG = FALSE
+      END
+      MATREAD BRN.DETAIL.REC FROM BRN.DETAIL.FV,BRANCH.VALUE THEN
+         IF CONTINUE.FLG AND BRANCH.INITIAL # BRANCH.VALUE THEN
+            BRANCH.NAME = BRN.DESC
+            BRANCH.DESC1 = BRANCH.VALUE:SPACE(3):BRANCH.NAME
+            CALL TPCRT(12,1,BRANCH.DESC1,'Y',-4,1,'','','')
+            CALL ERR("NATIONAL BRANCH NOT ALLOWED","")
+            CALL TPCRT(12,1,BRANCH.DESC,'Y',-4,1,'','','')
+         END ELSE
+            BRANCH.READ = TRUE
+            BRANCH.MACH = BRN.MACH.NME
+            BRANCH.NAME = BRN.DESC
+            REGION.CODE = BRN.REG.CODE
+            BRANCH.DESC = BRANCH.VALUE:SPACE(3):BRANCH.NAME
+            BRANCH.COD = BRANCH.VALUE
+            OLD.BRANCH.CODE = BRANCH.VALUE
+            CALL TPCRT(12,1,BRANCH.DESC,'Y',-4,1,'','','')
+         END
+      END ELSE
+
+         CALL TPCRT(19,1,SPACE(40),'Y','','','','','')
+         CALL ERR("ENTER A VALID BRANCH CODE","")
+         BRANCH.VALUE = ""
+         IF MODE = '' THEN
+            CALL TPCRT(12,1,BRANCH.INITIAL.DESC,'Y','','','','','')
+         END ELSE
+            CALL TPCRT(12,1,BRANCH.DESC,'Y','','','','','')
+         END
+      END
+      RETURN
+
+***************************************************************************************************************************************
+*********************
+GET.CUSTOMER.DETAILS:
+*********************
+
+      INPUT.COMPLETE = FALSE
+      HELP = "Enter Customer Code or Name or Keyword"
+      IF MODE # 'C' THEN
+         CUST.NAME = ''
+      END
+      LOOP UNTIL INPUT.COMPLETE DO
+         GOSUB CLEAR.CUST.RETRIEVAL
+         CTL = ''
+         IF MODE EQ 'C' AND OLD.CUSTOMER.CODE # '' THEN
+            CUSTOMER.CODE = OLD.CUSTOMER.CODE
+         END
+         CRT CURSOR.ON:
+         CALL INP(12,2,CUSTOMER.CODE,20,'L#20','','0X',1,0,0,CTL,HELP,0)
+         CRT CURSOR.OFF:
+         CUSTOMER.CODE = TRIM(CUSTOMER.CODE)
+         CUSTOMER.CODE = UPCASE(CUSTOMER.CODE)
+         CALL TPCRT(12,2,SPACE(15),'Y','','','','','')
+         CALL TPCRT(12,2,CUSTOMER.CODE,'Y','','','','','')
+         BEGIN CASE
+            CASE CTL = "/"
+
+               IF MODE = 'C' THEN
+                  CNT = DCOUNT(HEADER.DETAILS,@AM)
+                  OLD.BRANCH.DESC = HEADER.DETAILS<CNT,1>
+                  OLD.BRANCH.CODE = LEFT(OLD.BRANCH.DESC,4)
+                  OLD.CUSTOMER.CODE = HEADER.DETAILS<CNT,2>
+                  OLD.CUST.NAME.DESC = HEADER.DETAILS<CNT,3>
+                  CALL TPCRT(12,1,OLD.BRANCH.DESC"L#40",'Y',-4,1,'','','')
+                  CALL TPCRT(12,2,OLD.CUSTOMER.CODE"L#6",'Y','','','','','')
+                  CALL TPCRT(49,2,OLD.CUST.NAME.DESC"L#20",'Y',-4,1,'','','')
+               END ELSE
+                  OLD.BRANCH.CODE= BRANCH.INITIAL
+                  OLD.BRANCH.DESC = BRANCH.INITIAL.DESC
+                  CALL TPCRT(12,1,OLD.BRANCH.DESC"L#40",'Y',-4,1,'','','')
+               END
+
+               INPUT.COMPLETE = TRUE
+
+               IF BRANCH.INITIAL = BRANCH.VALUE THEN
+                  IF NOT(CONTINUE.FLG) THEN
+                     END.OF.INPUTS = TRUE
+                     IF MODE # 'C' THEN
+                        GET.OUT = TRUE
+                     END
+                  END
+               END
+            CASE CTL = "<"
+               IF NOT(CONTINUE.FLG) AND (BRANCH.INITIAL = BRANCH.VALUE) THEN
+                  CALL ERR("YOU CANNOT " : CTL : " HERE","")
+               END ELSE
+                  INPUT.COMPLETE = TRUE
+               END
+
+            CASE CTL NE NULL
+               CALL ERR("YOU CANNOT " : CTL : " HERE","")
+            CASE CUSTOMER.CODE MATCHES VALID.ACCOUNT.MASK
+               GOSUB CUST.REC.DETAILS
+               CUST.CODE.ARR<1,-1> = CUSTOMER.CODE
+               CUST.NAME.ARR<1,-1> = CUST.NAME
+
+               CALL TPCRT(12,2,CUSTOMER.CODE,'Y','','','','','')
+            CASE CUSTOMER.CODE MATCHES '0X' AND NOT(LEN(TRIM(CUSTOMER.CODE))=0)
+               REPLY = CUSTOMER.CODE
+               ROUTING = "1":@VM:"2"
+               BACKUP.SCREEN = ''
+               BACKUP.SCREEN = SC.CURR
+               TEMP.SCREEN = SC.CURR
+               FOR XX = 2 TO 18
+                  CALL TPCRT(1,XX,'','',-4,'','','','')
+               NEXT XX
+
+               CALL CUSTOMER.RETRIEVAL(REPLY,CUSTOMER.CODE,HOLD.CUSTOMER,THIRE,TOT,POS.CUSTOMER.ITEM,CALLING.PROG,APPLICATION.CODE,RECALL.FLAG,ROUTING,CUSTRET.ARRAY,CUSTRET.LAST,RETURN.TYPE,'',QUOTE.NO)
+               SC.CURR = BACKUP.SCREEN
+
+               REDISPLAY.VERSION = "CURR":AM:"1-21":AM:"0-79":AM:"Y"
+               CALL TPREPAINT(REDISPLAY.VERSION,'','','')
+               IF REPLY THEN
+                  CALL TPCRT(12,2,SPACE(15),'Y','','','','','')
+                  CALL TPCRT(12,2,CUSTOMER.CODE,'Y','','','','','')
+                  GOSUB CUST.REC.DETAILS
+                  CUST.CODE.ARR<1,-1> = CUSTOMER.CODE
+                  CUST.NAME.ARR<1,-1> = CUST.NAME
+               END
+
+            CASE 1
+               CALL ERR("INVALID CUSTOMER CODE","")
+               CUSTOMER.CODE = OLD.CUSTOMER.CODE
+         END CASE
+      REPEAT
+      RETURN
+
+***********************************************************************
+*********************
+CUST.REC.DETAILS:
+*********************
+      CUST.NAME = OLD.CUST.NAME
+      IF CUSTOMER.CODE # '' THEN
+         MATREAD POS.CUSTOMER.REC FROM POS.CUSTOMER.FV, CUSTOMER.CODE THEN
+            IF PC.BRAND MATCHES BRN.CUST.MAIN.BRAND OR PC.BRAND MATCHES BRN.CUST.SUB.BRAND THEN
+               CUST.NAME = CUST.NAME
+               CALL TPCRT(49,2,CUST.NAME"L#25",'Y',-4,1,'','','')
+               INPUT.COMPLETE = TRUE
+               OLD.CUSTOMER.CODE = CUSTOMER.CODE
+               OLD.CUST.NAME = CUST.NAME
+               TEMP.CUST.CODE.ARR<1,-1> = CUSTOMER.CODE
+               TEMP.CUST.NAME.ARR<1,-1> = CUST.NAME
+            END ELSE
+               CALL ERR("CUSTOMER ":CUSTOMER.CODE:" IS NOT VALID FOR THIS BRANCH - <Rtn>","")
+               CUSTOMER.CODE = OLD.CUSTOMER.CODE
+               CALL TPCRT(12,2,'','','','','','','')
+            END
+         END ELSE
+            MATREAD POS.CUSTOMER.REC FROM CASH.CUSTOMER.FV, CUSTOMER.CODE THEN
+               IF PC.BRAND MATCHES BRN.CUST.MAIN.BRAND OR PC.BRAND MATCHES BRN.CUST.SUB.BRAND THEN
+                  CUST.NAME = CUST.NAME
+                  CALL TPCRT(49,2,CUST.NAME"L#25",'Y',-4,1,'','','')
+                  INPUT.COMPLETE = TRUE
+                  OLD.CUSTOMER.CODE = CUSTOMER.CODE
+                  OLD.CUST.NAME = CUST.NAME
+                  TEMP.CUST.CODE.ARR<1,-1> = CUSTOMER.CODE
+                  TEMP.CUST.NAME.ARR<1,-1> = CUST.NAME
+               END ELSE
+                  CALL ERR("CUSTOMER ":CUSTOMER.CODE:" IS NOT VALID FOR THIS BRANCH - <Rtn>","")
+                  CUSTOMER.CODE = OLD.CUSTOMER.CODE
+                  CALL TPCRT(12,2,'','','','','','','')
+               END
+            END ELSE
+               CALL ERR("ENTER VALID CUSTOMER CODE","")
+               CUSTOMER.CODE = OLD.CUSTOMER.CODE
+               CALL TPCRT(12,2,'','','','','','','')
+            END
+         END
+      END
+      RETURN
+**********************************************************************************************************
+*********************
+CLEAR.CUST.RETRIEVAL:
+*********************
+
+      REPLY = ''
+      HOLD.CUSTOMER = ''
+      THIRE = ''
+      TOT = ''
+      CALLING.PROG = PROGRAM.NAME
+      CUSTRET.ARRAY = ''
+      CUSTRET.LAST = ''
+      QUOTE.NO = ''
+      APPLICATION.CODE = 'POS'
+      RECALL.FLAG = 0
+      POS.CUSTOMER.ITEM = ''
+      ROUTING = ''
+      RETURN.TYPE = 'CASHACC'
+
+      RETURN
+
+******************************************************************************************
+******************
+GET.EMAIL.ADDRESS:
+******************
+
+      READ.COMPLETE = TRUE
+      IF MODE = '' THEN
+         READ EMAIL.ADDR FROM SY.PARAMS.FV,"CLAIMBACK.EMAIL.COMP.DETAIL" THEN
+            EMAIL.ADDRESS = EMAIL.ADDR<1>
+         END ELSE
+            CALL ERR("ENTER THE VALID EMAIL ADDRESS",'')
+            EMAIL.ADDRESS = ''
+         END
+      END
+
+      CALL TPCRT(12,3,EMAIL.ADDRESS,'Y',-4,1,'','','')
+
+      INPUT.COMPLETE = FALSE
+
+      HELP = "Enter the email address. A seperate copy will be sent to you"
+
+      LOOP UNTIL INPUT.COMPLETE DO
+         CTL = ''
+         CRT CURSOR.ON:
+         CALL INP(12,3,EMAIL.ADDRESS,40,'L#40','','0X',1,0,0,CTL,HELP,0)
+         CRT CURSOR.OFF:
+
+         EMAIL.ADDRESS = TRIM(EMAIL.ADDRESS)
+
+         BEGIN CASE
+            CASE CTL = "/"
+               CNT = DCOUNT(HEADER.DETAILS,@AM)
+               IF MODE = 'C' THEN
+                  OLD.BRANCH.CODE = LEFT(OLD.BRANCH.DESC,4)
+                  OLD.CUSTOMER.CODE = HEADER.DETAILS<CNT,2>
+                  OLD.CUST.NAME = HEADER.DETAILS<CNT,3>
+                  CALL TPCRT(49,2,OLD.CUST.NAME"L#25",'Y',-4,1,'','','')
+                  CALL TPCRT(12,2,OLD.CUSTOMER.CODE"L#6",'Y','',1,'','','')
+                  CALL TPCRT(12,1,OLD.BRANCH.DESC"L#40",'Y',-4,1,'','','')
+               END ELSE
+                  OLD.BRANCH.CODE= BRANCH.INITIAL
+                  OLD.BRANCH.DESC = BRANCH.INITIAL.DESC
+                  CALL TPCRT(12,1,OLD.BRANCH.DESC"L#40",'Y',-4,1,'','','')
+               END
+               INPUT.COMPLETE = TRUE
+            CASE CTL = "<"
+               INPUT.COMPLETE = TRUE
+            CASE CTL NE NULL
+               CALL ERR("ENTER A VALID EMAIL ADDRESS","")
+            CASE EMAIL.ADDRESS MATCHES '0X'
+               GOSUB EMAIL.VALIDATE
+               OLD.EMAIL.ADDRESS = EMAIL.ADDRESS
+               HEADER.DETAILS<-1> = BRANCH.DESC:@VM:CUSTOMER.CODE:@VM:CUST.NAME:@VM:EMAIL.ADDRESS
+               EMAIL.ADDR.ARR<1,-1> = EMAIL.ADDRESS
+            CASE 1
+               CALL ERR("ENTER A VALID EMAIL ADDRESS","")
+               EMAIL.ADDRESS = EMAIL.ADDR<1>
+         END CASE
+      REPEAT
+      RETURN
+
+*************************************************************************************
+***************
+EMAIL.VALIDATE:
+***************
+      EMAIL.ADDRESS = UPCASE(EMAIL.ADDRESS)
+      EMAIL.CNT = DCOUNT(EMAIL.ADDR.ARR<1>,@VM)
+      OLD.EMAIL.ADDR = EMAIL.ADDR.ARR<1,EMAIL.CNT>
+      IF NOT (EMAIL.ADDRESS MATCHES '1-50X@1-50X.1-10X') THEN
+         READ MAIL.USERS.REC FROM MAIL.USERS.FV,EMAIL.ADDRESS THEN
+            EMAIL.ADDRESS = MAIL.USERS.REC<1>:"@":MAIL.USERS.REC<2>
+            EMAIL.ADDRESS = DOWNCASE(EMAIL.ADDRESS)
+            GOSUB GET.USER.EMAIL.ID
+            IF(EMAIL.ADDRESS EQ USER.EMAIL) THEN
+               CALL ERR("AN EMAIL WILL BE SENT TO YOU. PLEASE SPECIFY OTHER EMAIL ID","")
+               IF MODE = '' THEN
+                  EMAIL.ADDRESS = EMAIL.ADDR<1>
+               END ELSE
+                  EMAIL.ADDRESS = OLD.EMAIL.ADDR
+               END
+
+            END ELSE
+               INPUT.COMPLETE = TRUE
+            END
+         END ELSE
+            CALL ERR("ENTER A VALID EMAIL ADDRESS","")
+            IF MODE # '' THEN
+               EMAIL.ADDRESS = DOWNCASE(OLD.EMAIL.ADDRESS)
+            END ELSE
+               EMAIL.ADDRESS = EMAIL.ADDR<1>
+            END
+            CALL TPCRT(12,3,EMAIL.ADDRESS,'Y',-4,1,'','','')
+
+         END
+      END ELSE
+         EMAIL.ADDRESS = DOWNCASE(EMAIL.ADDRESS)
+         GOSUB GET.USER.EMAIL.ID
+         IF(EMAIL.ADDRESS EQ USER.EMAIL) THEN
+            CALL ERR("AN EMAIL WILL BE SENT TO YOU. PLEASE SPECIFY OTHER EMAIL ID","")
+            IF MODE = '' THEN
+               EMAIL.ADDRESS = EMAIL.ADDR<1>
+            END ELSE
+               EMAIL.ADDRESS = OLD.EMAIL.ADDR
+            END
+         END ELSE
+            INPUT.COMPLETE = TRUE
+         END
+
+      END
+      CALL TPCRT(12,3,EMAIL.ADDRESS,'Y',-4,1,'','','')
+
+      IF MODE EQ 'C' AND INPUT.COMPLETE THEN
+         FIELD.NO = 7
+         CUST.CODE.ARR<1,-1> = CUSTOMER.CODE
+         CUST.NAME.ARR<1,-1> = CUST.NAME
+         OLD.CUSTOMER.CODE = CUSTOMER.CODE
+         OLD.CUST.NAME = CUST.NAME
+         TEMP.CUST.CODE.ARR = CUST.CODE.ARR
+         TEMP.CUST.NAME.ARR = CUST.NAME.ARR
+      END
+      RETURN
+
+****************************************************************************************
+*******************
+CLEAR.CUST.DETAILS:
+*******************
+      CUSTOMER.CODE = ''
+      OLD.CUSTOMER.CODE = ''
+      EMAIL.ADDRESS = ''
+      CALL TPCRT(12,2,SPACE(10),'','','','','','')
+      CALL TPCRT(49,2,'','',-4,'','','','')
+      CALL TPCRT(12,3,'','',-4,'','','','')
+      RETURN
+********************************************************************************************
+************
+GET.PRODUCT:
+************
+
+      INPUT.COMPLETE = FALSE
+      VALID.FLG = FALSE
+      HELP = "Enter Product Code or Keywords or '/' "
+      IF MODE # 'L' THEN
+         PROD.CODE = ''
+      END
+      LOOP UNTIL INPUT.COMPLETE DO
+         CTL = ''
+         PROD.CODE = OLD.PROD.CODE
+
+         CALL TPCRT(2,SCR.LINE.NO,LINE.NO"R%3",'','','','','','')
+
+         CRT CURSOR.ON:
+         CALL INP(7,SCR.LINE.NO,PROD.CODE,30,'L#30','','0X',1,0,0,CTL,HELP,0)
+         CRT CURSOR.OFF:
+         PROD.CODE = TRIM(PROD.CODE)
+         PROD.CODE = UPCASE(PROD.CODE)
+         CALL TPCRT(7,SCR.LINE.NO,PROD.CODE,'','','','','','')
+         BEGIN CASE
+            CASE CTL = "/"
+               IF MODE # 'L' THEN
+                  CALL TPCRT(2,SCR.LINE.NO,'','',-4,'','','','')
+               END
+               IF MODE = '' THEN
+                  DEL PROD.CODE.ARR<1,LINE.NO>
+                  DEL MAJOR.RANGE.ARR<1,LINE.NO>
+               END
+               INPUT.COMPLETE = TRUE
+               CLEAR.FLAG = TRUE
+               CURR.PROD.CODE.ARR = PROD.CODE.ARR
+
+            CASE CTL = "<"
+               CALL ERR("YOU CANNOT " : CTL : " HERE","")
+
+            CASE CTL NE NULL
+               CALL ERR("YOU CANNOT ": CTL : " HERE","")
+
+            CASE PROD.CODE MATCHES VALID.PRODUCT.MASK
+               CURR.PROD.CODE.ARR <1,-1>= PROD.CODE
+               CUR.PROD.CNT = DCOUNT(CURR.PROD.CODE.ARR,@VM)
+               IF PROD.CODE.ARR<1> # '' THEN
+                  GOSUB PROD.CODE.VALIDATION
+               END ELSE
+                  GOSUB READ.PRODUCT.DETAILS
+               END
+            CASE PROD.CODE # NULL
+               GOSUB PRODUCT.RETRIEVAL
+               PROD.CODE = PR.RETURN.CODE
+               CALL TPCRT(7,SCR.LINE.NO,SPACE(7),'','','','','','')
+               CALL TPCRT(7,SCR.LINE.NO,PROD.CODE,'','','','','','')
+
+               IF PROD.CODE.ARR<1> # '' THEN
+                  GOSUB PROD.CODE.VALIDATION
+               END ELSE
+                  GOSUB PRODUCT.RETRIEVAL
+                  PROD.CODE = PR.RETURN.CODE
+                  CALL TPCRT(7,SCR.LINE.NO,SPACE(7),'','','','','','')
+                  CALL TPCRT(7,SCR.LINE.NO,PROD.CODE,'','','','','','')
+                  GOSUB READ.PRODUCT.DETAILS
+               END
+            CASE 1
+               CALL ERR("ENTER A VALID PRODUCT CODE","")
+               PROD.CODE = ''
+         END CASE
+
+      REPEAT
+      RETURN
+
+*********************************************************************************************
+***********************
+PROD.CODE.VALIDATION:
+***********************
+      LOCATE PROD.CODE IN PROD.CODE.ARR<1> SETTING POS THEN
+         IF MODE = '' AND LINE.NO # POS THEN
+            CALL ERR("THIS PRODUCT HAS ALREADY BEEN ADDED ON THE LINE " : POS ,"")
+         END ELSE
+            IF LINE.NO # POS THEN
+               IF MODE = 'L' THEN
+                  LOCATE PROD.CODE IN CURR.PROD.CODE.ARR<1>,POS SETTING POS1 THEN
+                     CALL ERR("THIS PRODUCT HAS ALREADY BEEN ADDED ON THE LINE " : POS ,"")
+                  END ELSE
+                     INPUT.COMPLETE = TRUE
+                     CALL TPCRT(7,SCR.LINE.NO,PROD.CODE,'','','','','','')
+                  END
+               END ELSE
+                  CALL TPCRT(7,SCR.LINE.NO,SPACE(7),'','','','','','')
+                  CALL TPCRT(7,SCR.LINE.NO,PROD.CODE,'','','','','','')
+                  GOSUB READ.PRODUCT.DETAILS
+               END
+            END ELSE
+               INPUT.COMPLETE = TRUE
+               GOSUB READ.PRODUCT.DETAILS
+            END
+            CALL TPCRT(15,SCR.LINE.NO,PROD.DESC"L#25",'','','','','','')
+         END
+      END ELSE
+         GOSUB READ.PRODUCT.DETAILS
+      END
+      RETURN
+*********************************************************************************************
+*********************
+READ.PRODUCT.DETAILS:
+*********************
+      PROD.DESC = OLD.PROD.DESC
+      IF PROD.CODE # '' THEN
+         MATREAD PF.PRODUCT.MASTER.REC FROM PF.PRODUCT.MASTER.FV, PROD.CODE THEN
+            BRANCH.CHK = "9225"
+            IF BRANCH.COD = BRANCH.CHK THEN
+               * Warehouse is on the same machine
+               INCLUDE INCLUDES OPEN.FILE.CS.STOCK
+            END ELSE
+               * Warehouse is on a different machine
+               CALL CS.WHOUSE.OPEN.FILE("CS-STOCK",CS.STOCK.FV,"",ERR,"","")
+            END
+            IF ERR THEN
+               CALL ERR("UNABLE TO OPEN WAREHOUSE FILES - ":ERR,"")
+               CS.FILE.ERR = ERR
+            END
+
+            KEY = BRANCH.CHK:"*":PROD.CODE
+            READ STOCK.DET FROM CS.STOCK.FV, KEY THEN
+               IF STOCK.DET<2> = 0 AND STOCK.DET<6> = 0 THEN
+                  CALL ERR("PRODUCT ":PROD.CODE:" IS NOT STOCKED IN BRACKMILLS","")
+               END ELSE
+                  PROD.DESC = PF.MST.DESC
+                  MAJOR.RANGE = PF.MST.PBOOK.SEQ[8,4]
+                  CALL TPCRT(15,SCR.LINE.NO,PROD.DESC"L#25",'','','','','','')
+                  OLD.PROD.DESC = PROD.DESC
+                  OLD.PROD.CODE = PROD.CODE
+                  LOCATE PROD.CODE IN PROD.CODE.ARR<1> SETTING POS ELSE
+                     PROD.CODE.ARR<1,-1> = PROD.CODE
+                     PROD.DESC.ARR<1,-1> = PROD.DESC
+                     MAJOR.RANGE.ARR<1,-1> = MAJOR.RANGE
+                     INPUT.COMPLETE = TRUE
+                  END
+                  PROD.DESC = PROD.DESC'L#25'
+	       END
+            END ELSE
+               CALL ERR("PRODUCT ":PROD.CODE:" IS NOT STOCKED IN BRACKMILLS","")
+            END
+
+         END ELSE
+               PROD.DESC = ''
+               MAJOR.RANGE = ''
+               CALL ERR("ENTER A VALID PRODUCT CODE","")
+         END
+      END
+      RETURN
+
+********************************************************************************************
+****************
+GET.BRANCH.CODE:
+****************
+      INPUT.COMPLETE = FALSE
+      HELP = "Enter Branch Code or '/' to exit"
+      LOOP UNTIL INPUT.COMPLETE DO
+         CTL = ''
+         BRANCH.VALUE = OLD.BRANCH.CODE
+         CRT CURSOR.ON:
+         CALL INP(12,1,BRANCH.VALUE,4,'L#4','','0N',1,0,0,CTL,HELP,0)
+
+         CRT CURSOR.OFF:
+         BEGIN CASE
+            CASE CTL = "/"
+
+               IF MODE EQ 'C' THEN
+                  CNT1 = DCOUNT(HEADER.DETAILS,@AM)
+                  IF OLD.BRANCH.CODE # BRANCH.VALUE THEN
+                     CNT = CNT1 - 1
+                     OLD.BRANCH.DESC = HEADER.DETAILS<CNT,1>
+                     OLD.BRANCH.CODE = LEFT(OLD.BRANCH.DESC,4)
+                     OLD.CUSTOMER.CODE = HEADER.DETAILS<CNT,2>
+                     OLD.CUST.NAME = HEADER.DETAILS<CNT,3>
+                  END ELSE
+                     OLD.BRANCH.DESC = HEADER.DETAILS<CNT1,1>
+                     OLD.BRANCH.CODE = LEFT(OLD.BRANCH.DESC,4)
+                     OLD.CUSTOMER.CODE = HEADER.DETAILS<CNT1,2>
+                     OLD.CUST.NAME = HEADER.DETAILS<CNT1,3>
+                  END
+                  CALL TPCRT(12,1,OLD.BRANCH.DESC,'Y','','','','','')
+               END
+               IF MODE = '' THEN
+                  GOSUB CLEAR.CUST.DETAILS
+               END
+               INPUT.COMPLETE = TRUE
+               GET.OUT = TRUE
+            CASE CTL = "<"
+               CALL ERR("YOU CANNOT " : CTL : " HERE","")
+            CASE CTL NE NULL
+               CALL ERR("YOU CANNOT " : CTL : " HERE","")
+
+            CASE BRANCH.VALUE MATCHES '4N'
+               GOSUB OPEN.MACH.FILE
+               GOSUB GET.BRANCH.DETAILS
+               IF BRANCH.READ THEN
+                  INPUT.COMPLETE = TRUE
+               END
+            CASE 1
+
+               CALL TPCRT(19,1,SPACE(40),'Y','','','','','')
+               CALL ERR("ENTER A VALID BRANCH CODE","")
+
+               IF MODE = '' THEN
+                  CALL TPCRT(12,1,BRANCH.INITIAL.DESC,'Y','','','','','')
+               END ELSE
+                  CALL TPCRT(12,1,BRANCH.DESC,'Y','','','','','')
+               END
+         END CASE
+      REPEAT
+      RETURN
+***********************************************************************************************
+*************
+GET.QUANTITY:
+*************
+
+      INPUT.COMPLETE = FALSE
+
+      HELP = "Enter quantity"
+      IF MODE # 'L' THEN
+         QTY = ''
+      END
+      LOOP UNTIL INPUT.COMPLETE DO
+         CTL = ''
+         QTY = OLD.QTY
+         CRT CURSOR.ON:
+         CALL TPCRT(43,SCR.LINE.NO,SPACE(10),'','','','','','')
+
+         CALL INP(43,SCR.LINE.NO,QTY,6,'R#6','','0N',1,0,0,CTL,HELP,0)
+         CRT CURSOR.OFF:
+         BEGIN CASE
+            CASE CTL = "/"
+               INPUT.COMPLETE = TRUE
+            CASE CTL = "<"
+               INPUT.COMPLETE = TRUE
+            CASE CTL NE NULL
+               CALL ERR("YOU CANNOT " : CTL : " HERE","")
+
+            CASE QTY LE 999999 AND QTY GE 1
+               CALL TPCRT(43,SCR.LINE.NO,SPACE(10),'','','','','','')
+
+               CALL TPCRT(43,SCR.LINE.NO,QTY"R#6",'','','','','','')
+
+               INPUT.COMPLETE = TRUE
+               OLD.QTY = QTY
+               QTY.ARR<1,-1> = QTY
+            CASE 1
+               CALL ERR("ENTER A VALID QUANTITY","")
+               QTY = ""
+         END CASE
+      REPEAT
+      RETURN
+
+**************************************************************************************
+***************
+GET.COMP.PRICE:
+***************
+      INPUT.COMPLETE = FALSE
+
+      HELP = "Enter Competitor's Price"
+      IF MODE # 'L' THEN
+         COMP.PRICE = ''
+      END
+      LOOP UNTIL INPUT.COMPLETE DO
+         CTL = ''
+         COMP.PRICE = OLD.COMP.PRICE
+         CRT CURSOR.ON:
+
+         CALL INP(53,SCR.LINE.NO,COMP.PRICE,7,'R#7','','0X',0,0,0,CTL,HELP,0)
+         COMP.PRICE = TRIM(COMP.PRICE)
+         CRT CURSOR.OFF:
+         BEGIN CASE
+            CASE CTL = "/"
+               INPUT.COMPLETE = TRUE
+            CASE CTL = "<"
+               INPUT.COMPLETE = TRUE
+            CASE CTL NE NULL
+               CALL ERR("YOU CANNOT ": CTL : " HERE","")
+            CASE COMP.PRICE > 0 AND COMP.PRICE < 10000
+               IF COMP.PRICE MATCHES VALIDATE.PRICE THEN
+                  IF COMP.PRICE # '' THEN
+                     COMP.PRICE = COMP.PRICE'MD20'
+                  END ELSE
+                     COMP.PRICE = ''
+                  END
+                  CALL TPCRT(53,SCR.LINE.NO,SPACE(9),'','','','','','')
+                  IF COMP.PRICE # '' THEN
+                     CALL TPCRT(53,SCR.LINE.NO,COMP.PRICE'R2#7','','','','','','')
+                  END ELSE
+                     CALL TPCRT(53,SCR.LINE.NO,SPACE(9),'','','','','','')
+                  END
+                  INPUT.COMPLETE = TRUE
+                  OLD.COMP.PRICE = COMP.PRICE
+                  COMP.PRICE.ARR<1,-1> = COMP.PRICE
+               END ELSE
+                  CALL ERR("PRICE MUST BE BETWEEN ZERO AND 10000","")
+                  COMP.PRICE = ""
+               END
+            CASE COMP.PRICE EQ ''
+               INPUT.COMPLETE = TRUE
+            CASE 1
+               CALL ERR("PRICE MUST BE BETWEEN ZERO AND 10000","")
+               COMP.PRICE = ""
+         END CASE
+      REPEAT
+      RETURN
+
+****************************************************************************************
+**************
+GET.COMP.NAME:
+**************
+      INPUT.COMPLETE = FALSE
+
+      HELP = "Enter competitor's name or @"
+      IF MODE # 'L' THEN
+         COMP.NAME = ''
+      END
+      LOOP UNTIL INPUT.COMPLETE DO
+         CTL = ''
+         COMP.NAME = OLD.COMP.NAME
+         CRT CURSOR.ON:
+
+         CALL INP(62,SCR.LINE.NO,COMP.NAME,17,'L#17','','0X',0,0,0,CTL,HELP,0)
+         COMP.NAME = TRIM(COMP.NAME)
+         IF COMP.NAME # '' THEN
+            COMP.NAME = UPCASE(COMP.NAME)
+         END
+         CRT CURSOR.OFF:
+         BEGIN CASE
+
+            CASE CTL = "/"
+               INPUT.COMPLETE = TRUE
+
+            CASE CTL = "<"
+               INPUT.COMPLETE = TRUE
+
+            CASE CTL MATCHES "@"
+               COMP.NAME.POS = ''
+               BACKUP.SC = ''
+               BACKUP.SC = SC.CURR
+               CALL DSPLY.LIST.NOFILE(45,7,10,25,EMAIL.ADDR<2>,COMP.NAME,COMP.NAME.POS,"Competitor's Name",SY.PARAMS.FV,TERMWORK.FV,'')
+               SC.CURR = BACKUP.SC
+               VERSION = "CURR":AM:"1-20":AM:"0-79":AM:"Y"
+               CALL TPREPAINT(VERSION,'','','')
+               IF COMP.NAME # '' THEN
+                  COMP.NAME = EMAIL.ADDR<2,COMP.NAME.POS>
+                  CALL TPCRT(61,SCR.LINE.NO,COMP.NAME"L#20",'','','','','','')
+                  INPUT.COMPLETE = TRUE
+                  OLD.COMP.NAME = COMP.NAME
+                  DATA.ARR<-1> = PROD.CODE:@VM:PROD.DESC:@VM:QTY:@VM:COMP.PRICE:@VM:COMP.NAME
+                  COMP.NAME.ARR<1,-1> = COMP.NAME
+                  GOSUB CHECK.LINE.EXIST
+                  IF MODE # 'L' THEN
+                     GOSUB CLEAR.OLD.VALUES
+                     GOSUB NEXT.PAGE
+                  END
+               END
+
+            CASE CTL NE NULL
+               CALL ERR("YOU CANNOT ": CTL :" HERE","")
+
+            CASE COMP.NAME MATCHES 'HOWDENS':@VM:'MAGNETS':@VM:'SELCO':@VM:'JEWSON':@VM:'B&Q':@VM:'LOCAL INDEPENDENT':@VM:'OTHERS'
+               CALL TPCRT(62,SCR.LINE.NO,COMP.NAME"L#20",'','','','','','')
+               DATA.ARR<-1> = PROD.CODE:@VM:PROD.DESC:@VM:QTY:@VM:COMP.PRICE:@VM:COMP.NAME
+               COMP.NAME.ARR<1,-1> = COMP.NAME
+               GOSUB CHECK.LINE.EXIST
+
+               IF MODE # 'L' THEN
+                  GOSUB CLEAR.OLD.VALUES
+                  GOSUB NEXT.PAGE
+               END
+               INPUT.COMPLETE = TRUE
+
+            CASE COMP.NAME = ''
+               DATA.ARR<-1> = PROD.CODE:@VM:PROD.DESC:@VM:QTY:@VM:COMP.PRICE:@VM:COMP.NAME
+               COMP.NAME.ARR<1,-1> = COMP.NAME
+               GOSUB CHECK.LINE.EXIST
+               IF MODE # 'L' THEN
+                  GOSUB CLEAR.OLD.VALUES
+                  GOSUB NEXT.PAGE
+               END
+               INPUT.COMPLETE = TRUE
+
+            CASE 1
+               CALL ERR("ENTER A VALID NAME","")
+               COMP.NAME = ""
+         END CASE
+      REPEAT
+      RETURN
+
+****************
+OPEN.MACH.FILE:
+****************
+* Code to open  machine specific CLAIMBACK-REPORT-DETAIL file
+      IF TESTING THEN
+         IF BRANCH.MACH = "DEV-B" THEN
+            KEY.UV.ACCOUNT = 'DB:CLAIMBACK-REPORT-DETAIL'
+            KEY.SY.PARAMS = 'DB:SGROUP'
+         END ELSE
+            KEY.UV.ACCOUNT = 'DC:CLAIMBACK-REPORT-DETAIL'
+            KEY.SY.PARAMS = 'DC:SGROUP'
+         END
+      END ELSE
+         IF BRANCH.MACH = "POS-A" THEN
+            KEY.UV.ACCOUNT = 'PA:CLAIMBACK-REPORT-DETAIL'
+            KEY.SY.PARAMS = 'PA:SGROUP'
+         END ELSE
+            KEY.UV.ACCOUNT = 'PB:CLAIMBACK-REPORT-DETAIL'
+            KEY.SY.PARAMS = 'PB:SGROUP'
+         END
+      END
+
+      READV BRANCH.PATH FROM UV.ACCOUNT.FV,KEY.UV.ACCOUNT,11 THEN
+         OPENPATH BRANCH.PATH TO CLAIMBACK.REPORT.DETAIL.FV ELSE
+            FATAL.ERROR.MSG = "CANNOT OPEN ":FILE.PATH
+            GOSUB FATAL.ERROR
+         END
+      END ELSE
+         FATAL.ERROR.MSG = "UV.ACCOUNT ENTRY FOR ":BRANCH.PATH:" IS MISSING"
+         GOSUB FATAL.ERROR
+      END
+
+      READV BRANCH.PATH.1 FROM UV.ACCOUNT.FV,KEY.SY.PARAMS,11 THEN
+         FILE.PATH = BRANCH.PATH.1:"/":"SY.PARAMS"
+         OPENPATH FILE.PATH TO SY.PARAMS.FV ELSE
+            FATAL.ERROR.MSG = "CANNOT OPEN ":FILE.PATH
+            GOSUB FATAL.ERROR
+         END
+      END ELSE
+         FATAL.ERROR.MSG = "UV.ACCOUNT ENTRY FOR ":BRANCH.PATH.1:" IS MISSING"
+         GOSUB FATAL.ERROR
+      END
+
+      RETURN
+
+****************************************************************************************
+**********
+NEXT.PAGE:
+**********
+
+      NEXT.LINE = FALSE
+      LINE.NO + = 1
+      SCR.LINE.NO + = 1
+      LOOP UNTIL ADD.END DO
+         TOTAL.LINES = DCOUNT(DATA.ARR,@AM)
+         IF TOTAL.LINES < MAX.LIMIT THEN
+            MODE = ''
+            PAGE.NO = LAST.PAGE.NO
+            GOSUB DISPLAY.DETAILS
+            IF SCR.LINE.NO = SCREEN.END THEN
+               SCR.LINE.NO = SCREEN.START
+               GOSUB CLEAR.SCREEN
+               PAGE.NO = PAGE.NO + 1
+               GOSUB PAGE.NO.SET
+            END
+            NEXT.LINE = TRUE
+            GOSUB GET.INPUTS
+
+            IF NOT(CLEAR.FLAG) THEN
+               GOSUB CLEAR.OLD.VALUES
+               TOTAL.LINES = DCOUNT(DATA.ARR,@AM)
+
+               IF TOTAL.LINES GE MAX.LIMIT AND NOT(CLEAR.FLAG) THEN
+                  ADD.END = TRUE
+               END
+            END ELSE
+               ADD.END = TRUE
+            END
+
+         END ELSE
+            CALL ERR("CANNOT ADD MORE REQUEST","")
+            ADD.END = TRUE
+         END
+      REPEAT
+      ADD.END = ''
+
+      RETURN
+
+********************************************************************************************
+*************
+CLEAR.SCREEN:
+*************
+      FOR LNO = 6 TO 20
+         CALL TPCRT(1,LNO,'','','-4','','','','')
+      NEXT LNO
+      RETURN
+
+*********************************************************************
+******************
+PRODUCT.RETRIEVAL:
+******************
+
+      PR.REQUIRED.SEL.CRITERIA = PROD.CODE
+      PR.START.BOX = 2
+      PR.END.BOX = 20
+      PR.SR = ''
+      PR.BOX.DRWAN = "BOT"
+      PR.MR = ''
+      PR.MG = ''
+      PR.SG = ''
+      PR.RETURN.COND = 'A'
+      PR.RETURN.LIST = ''
+      BPB.BLANKET.DISC.ON.BASKET = ''
+      PR.CONT.NO = ''
+      PR.RETURN.CODE = ''
+      PR.ALLOW.KEYWORDS = 'Y'
+      PR.GREP.SEARCH = TRUE
+      PR.REPAINTABLE = TRUE
+      SALE.TYPE = ''
+      SAVE.SCREEN = SC.CURR
+      PR.BOX.DRAWN = "BOT"
+      PR.CUST.CODE = CUSTOMER.CODE
+      PR.SELECTION.CRITERIA = PROD.CODE
+      IF PR.SELECTION.CRITERIA # '' THEN
+         PR.BRANCH.CODE = BRANCH.CODE
+         PR.BASKET.DISABLE.OPTIONS = 11:VM:12:VM:13:VM:14
+         OETC.ASSOC.PRODUCTS.LIST = ""
+         CALLED.FROM.TEA = "N"
+         GOSUB CLEAR.SCREEN
+
+         CALL PR.SET.OF.DRIVER
+         GOSUB CLEAR.SCREEN
+         SC.CURR = SAVE.SCREEN
+         REDISPLAY.VERSION = "CURR":AM:"1-21":AM:"0-79":AM:"Y"
+         CALL TPREPAINT(REDISPLAY.VERSION,'','','')
+         PR.RETURN.LIST = PR.RETURN.CODE
+         IF PR.RETURN.LIST # NULL THEN
+            VALID.FLG = TRUE
+         END ELSE
+            VALID.FLG = FALSE
+         END
+
+         REDISPLAY.VERSION = "CURR":AM:"1-21":AM:"0-79":AM:"Y"
+         CALL TPREPAINT(REDISPLAY.VERSION,'','','')
+      END
+      RETURN
+
+*********************************************************************
+****************
+SEL.LINE.CONTROL:
+****************
+      SEL.DISABLE = ""
+      TOTAL.NO.REQUEST = DCOUNT(DATA.ARR,@AM)
+      IF TOTAL.NO.REQUEST < 1 THEN
+         SEL.DISABLE<1,PREV.POS> = TRUE
+         SEL.DISABLE<1,NEXT.POS> = TRUE
+         SEL.DISABLE<1,GOTO.POS> = TRUE
+         SEL.DISABLE<1,FILE.POS> = TRUE
+         SEL.DISABLE<1,DEL.POS> = TRUE
+         SEL.DISABLE<1,LINE.POS> = TRUE
+      END ELSE
+         IF LAST.PAGE.NO =1 THEN
+            SEL.DISABLE<1,PREV.POS> = TRUE
+            SEL.DISABLE<1,NEXT.POS> = TRUE
+            SEL.DISABLE<1,GOTO.POS> = TRUE
+         END
+         IF PAGE.NO = 1 THEN
+            SEL.DISABLE<1,PREV.POS> = TRUE
+            IF POS.SELECT = PREV.POS THEN
+               SEL.POS = NEXT.POS
+            END
+         END
+         IF PAGE.NO = LAST.PAGE.NO THEN
+            SEL.DISABLE<1,NEXT.POS> = TRUE
+            IF POS.SELECT = NEXT.POS THEN
+               SEL.POS = PREV.POS
+            END
+         END
+      END
+
+      RETURN
+
+******************************************************************************
+PAGE.NO.SET:
+*****************
+*****************
+
+      TOTAL.NO.REQUEST = DCOUNT(DATA.ARR,@AM)
+      LAST.PAGE.NO = INT((TOTAL.NO.REQUEST - 1)/SCREEN.SIZE) + 1
+      IF TOTAL.NO.REQUEST = 0 THEN PAGE.NO = 1
+      IF PAGE.NO>LAST.PAGE.NO THEN
+         LAST.PAGE.NO = PAGE.NO
+      END
+      PAGE.NO.DISP = DIM.ON : "Page " : DIM.OFF : PAGE.NO : DIM.ON : " of " : DIM.OFF : LAST.PAGE.NO
+
+      CALL TPCRT(57,20,PAGE.NO.DISP,'',-4,"N",'','','')
+      RETURN
+
+*********************************************************************************************
+*****************
+DISPLAY.DETAILS:
+*****************
+      GOSUB CLEAR.SCREEN
+      GOSUB PAGE.NO.SET
+      SCREEN.LINE.NO = SCREEN.START
+      START.LINE.NO = ((PAGE.NO - 1) * SCREEN.SIZE) + 1
+      END.LINE.NO = START.LINE.NO + (SCREEN.SIZE -1)
+      FOR LINE.NUM = START.LINE.NO TO END.LINE.NO UNTIL DATA.ARR<LINE.NUM,1> = ""
+         GOSUB CAL.SPACE
+         DISP.LINE = LINE.NUM"R%3":SPACE(2):DATA.ARR<LINE.NUM,1>"L#6":SPACE(2):DATA.ARR<LINE.NUM,2>"L#25":SPACE(PROD.SP):DATA.ARR<LINE.NUM,3>'R#6':SPACE(PRICE.SP):DATA.ARR<LINE.NUM,4>'MD20':SPACE(COMP.NAME.SP):DATA.ARR<LINE.NUM,5>"L#20"
+         CALL TPCRT(2,SCREEN.LINE.NO,DISP.LINE,'','','','','','')
+         SCREEN.LINE.NO = SCREEN.LINE.NO + 1
+      NEXT LINE.NUM
+      RETURN
+
+*************************************************************************************
+**********
+CAL.SPACE:
+**********
+      PROD.DESC.LEN = LEN(DATA.ARR<LINE.NUM,2>)
+      QTY.LEN1 = DATA.ARR<LINE.NUM,3>
+      QTY.LEN = LEN(DATA.ARR<LINE.NUM,3>)'R#6'
+      COMP.PRICE.LEN = LEN(DATA.ARR<LINE.NUM,4>'MD20')
+      COMP.NAME.LEN = LEN(DATA.ARR<LINE.NUM,5>)
+      PROD.SP = 28 - PROD.DESC.LEN
+      QTY.SP = 6 - LEN(DATA.ARR<LINE.NUM,3>)
+      IF QTY.LEN = 6 THEN QTY.SP = 1 ELSE QTY.SP = QTY.SP
+      PRICE.SP = 11 - COMP.PRICE.LEN
+      COMP.NAME.SP = 2
+      RETURN
+
+*************************************************************************************
+******************
+CLEAR.OLD.VALUES:
+******************
+
+      OLD.PROD.CODE = ""
+      OLD.PROD.DESC = ""
+      OLD.QTY = ""
+      OLD.COMP.PRICE = ""
+      OLD.COMP.NAME = ""
+      RETURN
+
+************************************************************************************************
+*****************
+GET.NEXT.REF.CODE:
+******************
+
+      READ.SUCCESS = FALSE
+      READU CLAIM.REF.NEXT FROM SY.PARAMS.FV,"CLAIMBACK.REF.NEXT" LOCKED
+         GOSUB DISPLAY.USERNAME
+         CALL ERR("SY-PARAMS CLAIMBACK.REF.NEXT RECORD IS LOCKED ","")
+      END THEN
+         READ.SUCCESS = TRUE
+         IF CLAIM.REF.NEXT = '' THEN
+            CLAIM.REF.NEXT = '000001'
+         END
+      END ELSE
+         CALL ERR("UNABLE TO READ SY.PARAMS CLAIMBACK.REF.NEXT RECORD","")
+      END
+      RETURN
+
+*******************************************************************************************
+**********************
+WRITE.REQUEST.DETAILS:
+**********************
+      WRITE.COMPLETE = FALSE
+      PROD.CODE.ARR = ''
+      PROD.DESC.ARR = ''
+      QTY.ARR = ''
+      COMP.PRICE.ARR = ''
+      COMP.NAME.ARR= ''
+
+      FOR XX =1 TO DCOUNT(DATA.ARR,@AM)
+         PROD.CODE.ARR<1,-1> = DATA.ARR<XX,1>
+         PROD.DESC.ARR<1,-1> = DATA.ARR<XX,2>
+         QTY.ARR<1,-1> = DATA.ARR<XX,3>
+         IF DATA.ARR<XX,4> = '' THEN
+            COMP.PRICE.ARR<1,-1> = ' '
+         END ELSE
+            COMP.PRICE.ARR<1,-1> = DATA.ARR<XX,4>
+         END
+         IF DATA.ARR<XX,5> = '' THEN
+            COMP.NAME.ARR<1,-1> = ' '
+         END ELSE
+            COMP.NAME.ARR<1,-1> = DATA.ARR<XX,5>
+         END
+      NEXT XX
+      GOSUB GET.USER.EMAIL.ID
+      EMAIL.ADDR1 = USER.EMAIL:@VM:EMAIL.ADDRESS
+      EMAIL.SENT = 'Y':@VM:'Y'
+      REPORT.DETAILS = REGION.CODE:@AM:BRANCH.COD:@AM:CUSTOMER.CODE:@AM:CUST.NAME:@AM:PROD.CODE.ARR:@AM:PROD.DESC.ARR:@AM:MAJOR.RANGE.ARR:@AM:QTY.ARR:@AM:COMP.PRICE.ARR:@AM:COMP.NAME.ARR:@AM:EMAIL.SENT:@AM:EMAIL.ADDR1:@AM:DATE():@AM:TIME()
+
+      BRN.CODE.REF = BRANCH.COD:CLAIM.REF.NEXT
+
+      WRITE REPORT.DETAILS TO CLAIMBACK.REPORT.DETAIL.FV,BRN.CODE.REF THEN
+         WRITE.COMPLETE = TRUE
+         DISPLAY.MSG = "The reference number ":BRN.CODE.REF:" is generated. HIT <RETURN>"
+         GOSUB DISPLAY.MESSAGE
+      END ELSE
+         CALL ERR("UNABLE TO UPDATE REQUEST DETAILS.", "")
+      END
+
+      IF WRITE.COMPLETE THEN
+         CLAIM.REF.NEXT = CLAIM.REF.NEXT + 1
+         CLAIM.REF.NEXT = CLAIM.REF.NEXT"R%6"
+         WRITE CLAIM.REF.NEXT TO SY.PARAMS.FV,'CLAIMBACK.REF.NEXT' ELSE
+            WRITE.COMPLETE = FALSE
+         END
+      END
+
+      RELEASE SY.PARAMS.FV,'CLAIMBACK.REF.NEXT'
+
+      RETURN
+
+*****************************************************************************************
+****************
+DISPLAY.MESSAGE:
+****************
+
+      BACKUP.SC = ''
+      BACKUP.SC = SC.CURR
+      CALL BS.OE.DSPLY.BOX(10,10,65,5,'Y','','')
+      CALL TPCRT(15,12,DISPLAY.MSG,'Y','','','','','')
+      CALL ERR("","")
+      SC.CURR = BACKUP.SC
+      VERSION = "CURR":AM:"4-22":AM:"0-79":AM:"Y"
+      CALL TPREPAINT(VERSION,'','','')
+      RETURN
+
+*****************************************************************************************
+*********
+INIT.CSV:
+*********
+* Spreadsheet initialisation
+
+      DATE.VAL = OCONV(DATE(),'D4/')
+      DATE.VAL = CHANGE(DATE.VAL,'/','-')
+* Get pathname for csv files
+      FILEPATH.VAL = "Claimback_Report_":DATE.VAL:"_":PORT:".csv"
+
+* Reading CSVS path
+      READV CSV.PATH.ACCOUNT FROM VOC.FV,"CSVS",2 THEN
+         READV CSV.PATH FROM UV.ACCOUNT.FV, CSV.PATH.ACCOUNT, 11 THEN
+            CSV.PATH := "/CSVS/"
+         END ELSE
+            FATAL.ERROR.MSG = "UV.ACCOUNT MISSING"
+            GOSUB FATAL.ERROR
+         END
+      END ELSE
+         FATAL.ERROR.MSG = "CSV PATH ACCOUNT MISSING"
+         GOSUB FATAL.ERROR
+      END
+      PATH1 = CSV.PATH
+      CSV.PATH := FILEPATH.VAL
+
+      PERFORM 'SH -c "rm ':CSV.PATH:'"' CAPTURING ERRORS
+      PERFORM 'SH -c "touch ':CSV.PATH:'"' CAPTURING ERRORS
+      PERFORM 'SH -c "chmod 777 ':CSV.PATH:'"' CAPTURING ERRORS
+      RETURN
+*********************************************************************
+*********
+OPEN.CSV:
+*********
+* Open sequential file
+      OPENSEQ CSV.PATH TO CSV.FV ELSE
+         CREATE CSV.FV ELSE
+            ERROR.MSG<-1> = "UNABLE TO CREATE SEQUENTIAL FILE ":CSV.PATH
+            ERR.FLG = TRUE
+         END
+      END
+      RETURN
+***********************************************************************
+**********
+CLOSE.CSV:
+**********
+*Closes the sequential file
+      IF WRITE.COMPLETE THEN
+         WEOFSEQ CSV.FV
+         CLOSESEQ CSV.FV
+      END
+      RETURN
+
+***********************************************************************
+*******************
+WRITE.SUB.HEADING:
+*******************
+      LNE.START = 1
+      LNE.END = 9
+      FOR LNE.CNT = LNE.START TO LNE.END
+         GOSUB BUILD.HEADING.LINES
+         GOSUB WRITE.HEADING.CSV
+      NEXT LNE.CNT
+      RETURN
+***********************************************************************
+**********
+WRITE.HEADING.CSV:
+**********
+*This writes the column headers of the output file
+
+      WRITESEQ HEADING ON CSV.FV ELSE
+         ERROR.MSG<-1> = "ERROR WRITING HEADING TO CSV FILE"
+         ERR.FLG = TRUE
+      END
+
+      RETURN
+
+***********************************************************************
+**********
+WRITE.CSV:
+**********
+      LNE.START = 1
+      LNE.END = PROD.COUNT
+      FOR A = LNE.START TO LNE.END
+         IF CSV.DATA<A> # '' THEN
+            WRITESEQ CSV.DATA<A> ON CSV.FV ELSE
+               ERROR.MSG<-1> = "WRITE ON SEQ FILE FAILED "
+               ERR.FLG = TRUE
+            END
+         END
+      NEXT A
+
+      RETURN
+***********************************************************************
+**************
+BUILD.HEADING.LINES:
+**************
+      BEGIN CASE
+         CASE LNE.CNT = 1
+            HEADING = SPACE(100):"CLAIMBACK REPORT"
+         CASE LNE.CNT = 2
+            HEADING = "Reference Number:":",":"'":BRN.CODE.REF
+         CASE LNE.CNT = 3
+            HEADING = "Customer Number :":",":"'":CUSTOMER.CODE
+         CASE LNE.CNT = 4
+            HEADING = "Customer Name :":",":CUST.NAME
+         CASE LNE.CNT = 5
+            HEADING = "Branch Code :":",":"'":BRANCH.COD
+         CASE LNE.CNT = 6
+            HEADING = "Branch Description :":",":BRANCH.NAME
+         CASE LNE.CNT = 7
+            HEADING = "Region :":",":"'":REGION.CODE
+         CASE LNE.CNT = 8
+            HEADING =''
+         CASE LNE.CNT = 9
+            HEADING = "Major Range":",":"Product code":","
+            HEADING :="Product Description":",":"Qty":","
+            HEADING :="Competitor's Price":",":"Competitor's Name"
+      END CASE
+      RETURN
+*********************************************************************************************
+*********************
+BUILD.OUTPUT.LINES:
+*********************
+      PROD.COUNT = DCOUNT(DATA.ARR,@AM)
+      FOR NO.OF.LINES = 1 TO PROD.COUNT
+         CSV.DATA<NO.OF.LINES> = "'":REPORT.DETAILS<7,NO.OF.LINES>:","
+         CSV.DATA<NO.OF.LINES> := REPORT.DETAILS<5,NO.OF.LINES>:","
+         CSV.DATA<NO.OF.LINES> := REPORT.DETAILS<6,NO.OF.LINES>:","
+         CSV.DATA<NO.OF.LINES> := REPORT.DETAILS<8,NO.OF.LINES>:","
+         CSV.DATA<NO.OF.LINES> := REPORT.DETAILS<9,NO.OF.LINES>:","
+         CSV.DATA<NO.OF.LINES> := REPORT.DETAILS<10,NO.OF.LINES>
+      NEXT NO.OF.LINES
+      RETURN
+*********************************************************************************************
+******************
+GET.USER.EMAIL.ID:
+******************
+      READ USER.REC FROM MAIL.USERS.FV,USERID ELSE
+         USER.REC = ""
+      END
+      USER.EMAIL = USER.REC<1>:"@":USER.REC<2>
+      USER.EMAIL = DOWNCASE(USER.EMAIL<1,1>)
+      RETURN
+*********************************************************************************************
+**********
+SEND.EMAIL:
+**********
+      IF WRITE.COMPLETE THEN
+         GOSUB GET.USER.EMAIL.ID
+         EMAIL.TO = EMAIL.ADDRESS : ';':USER.EMAIL           ; *EMAIL.TO
+         EMAIL.FROM = "no-reply@travisperkins.co.uk"
+         SUBJECT = 'Claimback Request Details - ':BRN.CODE.REF
+         BODY.TEXT = "Hi,"
+         BODY.TEXT := "\\n"
+         BODY.TEXT := "\\n"
+         BODY.TEXT := "Please find the attached file containing the details of the claimback request."
+         BODY.TEXT := "\\n"
+         BODY.TEXT := "\\n"
+         STATUS = ''
+         ERRMESS = ''
+         FILE.NAME = FILEPATH.VAL
+
+         CALL EMAIL.ATTACHED.FILE(CSV.PATH,EMAIL.FROM,EMAIL.TO,STATUS,SUBJECT,FILE.NAME,ERRMESS,BODY.TEXT,"","","","")
+         IF ERRMESS THEN
+            CALL ERR('UNABLE TO SEND EMAIL','')
+            READU CLAIM.DETAILS FROM CLAIMBACK.REPORT.DETAIL.FV,BRN.CODE.REF LOCKED
+               GOSUB DISPLAY.USERNAME
+               CALL ERR('CLAIMBACK-REPORT-DETAIL ':BRN.CODE.REF:'IS LOCKED ','')
+            END THEN
+               CLAIM.DETAILS<11> = 'N':@VM:'N'
+               WRITE CLAIM.DETAILS TO CLAIMBACK.REPORT.DETAIL.FV,BRN.CODE.REF ELSE
+                  CALL ERR('UNABLE TO UPDATE CLAIMBACK-REPORT-DETAIL FILE','')
+                  RELEASE CLAIMBACK.REPORT.DETAIL.FV, BRN.CODE.REF
+               END
+            END ELSE
+               CALL ERR(BRN.CODE.REF:' RECORD NOT FOUND IN CLAIMBACK-REPORT-DETAIL FILE ','')
+            END
+         END ELSE
+            PERFORM 'SH -c "rm ':CSV.PATH:'"' CAPTURING ERRORS
+         END
+      END
+      RETURN
+***********************************************************************
+*****************
+DISPLAY.USERNAME:
+*****************
+* For getting username who locked file
+
+      LOCKING.PORT = STATUS() "R%4"
+      LOCK.ID = ""
+      READ LOCKING.TERMWORK.REC FROM TERMWORK.FV,LOCKING.PORT THEN
+         LOCK.ID = LOCKING.TERMWORK.REC<1>
+      END
+
+      RETURN
+***********************************************************************
+*****************
+CHECK.LINE.EXIST:
+*****************
+      IF MODE = 'L' AND LINE.NO # POS THEN
+         CUR.PROD.CNT = DCOUNT(PROD.CODE.ARR,@VM)
+         PROD.CNT = DCOUNT(PROD.CODE.ARR,@VM)
+         INS PROD.CODE BEFORE PROD.CODE.ARR<1,LINE.NO>
+         DEL PROD.CODE.ARR<1,LINE.NO+1>
+         DEL PROD.CODE.ARR<1,PROD.CNT>
+      END
+      RETURN
+
+*****************************************************************************************
+*** BEWARE - if running in a phantom use FATAL.ERROR.PRINT instead !!
+************
+FATAL.ERROR:
+************
+
+      CRT CURSOR.ON:
+      VAR = ''
+
+      VAR<1,1> = "V1"
+      VAR<1,2> = PROGRAM.NAME
+      VAR<1,3> = DATE()
+      VAR<1,4> = TIME()
+      VAR<1,5> = LOWER(SYSTEM(9001))
+      VAR<2> = FATAL.ERROR.MSG
+      VAR<-1> = "!"
+
+      DATA VAR
+      CHAIN "SY.FATAL.ERROR"
+
+      RETURN
+
+   END
+
+

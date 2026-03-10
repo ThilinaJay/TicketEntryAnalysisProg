@@ -494,6 +494,10 @@ DO.LINE.SELECTION.AND.ACTION:
                            GOSUB WRITE.CSV
                            GOSUB CLOSE.CSV
                            CALL TPCRT(15,22,'Sending email with report. Please wait...','',-4,"N",'','','')
+  IF EMAIL.ADDRESS = '' THEN
+                              CALL ERR("EMAIL ADDRESS CANNOT BE BLANK","")
+                              ERR.FLG = TRUE
+                           END
                            GOSUB SEND.EMAIL
                            CALL TPCRT(0,22,'','',-4,"N",'','','')
                            INPUT.OK = TRUE

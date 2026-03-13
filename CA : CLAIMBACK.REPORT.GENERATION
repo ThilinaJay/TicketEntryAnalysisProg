@@ -220,45 +220,6 @@ INITIALISATION:
       CURR.PROD.CODE.ARR = ''
       POS = ''
 
-      IF MACHINE.NAME[1,3] = "POS" OR TESTING THEN
-         PROCEED.FLAG = TRUE
-      END ELSE
-         CALL ERR("THIS PROGRAM CAN BE RUN ONLY ON POS MACHINES","")
-      END
-
-      RETURN
-
-*********************************************************************
-************************
-READ.AND.DISPLAY.SCREEN:
-************************
-
-      SCREEN.NAME = "$":PROGRAM.NAME
-      READ SCREEN.1 FROM SCREENS.FV,SCREEN.NAME ELSE
-         FATAL.ERROR.MSG = "CANNOT READ ":SCREEN.NAME:" FROM SCREENS FILE"
-         GOSUB FATAL.ERROR
-      END
-
-      PART.SCREEN.NAME = "%":PROGRAM.NAME
-      READ SCREEN.1.PARTS FROM SCREENS.FV,PART.SCREEN.NAME ELSE
-         FATAL.ERROR.MSG = "CANNOT READ ":PART.SCREEN.NAME:" FROM SCREENS FILE"
-         GOSUB FATAL.ERROR
-      END
-
-      COMMON.SCREEN.NAME = "#":PROGRAM.NAME
-      READ SCREEN.1.COMMON FROM SCREENS.FV,COMMON.SCREEN.NAME ELSE
-         FATAL.ERROR.MSG = "CANNOT READ ":COMMON.SCREEN.NAME:" FROM SCREENS FILE"
-         GOSUB FATAL.ERROR
-      END
-
-      CRT.VAR = SCREEN.1:@(1,0):EXT.TODAY:TOP.RIGHT
-      CRT CRT.VAR
-
-      SC.CURR = SCREEN.1.COMMON
-
-      RETURN
-
-************************************************************************
 **********************
 SET.UP.SELECTION.LINE:
 **********************

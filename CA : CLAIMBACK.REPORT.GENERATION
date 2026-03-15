@@ -423,38 +423,7 @@ GET.INPUTS:
       RETURN
 
 *********************************************************************
-*****************************
-DO.LINE.SELECTION.AND.ACTION:
-*****************************
 
-      INPUT.OK = FALSE
-      LOOP UNTIL INPUT.OK DO
-         GOSUB SET.UP.SELECTION.LINE
-         GOSUB SEL.LINE.CONTROL
-         CTL = ''
-
-         CRT CURSOR.ON:
-         CALL LINE.SELECTION.2D(0,22,CHOICE,SEL.POS,SEL.WORDS,SEL.ABBRV,SEL.RTNS,SEL.HELP,SEL.DELIM,CTL,"","",SEL.PROMPT,ACTIVATE,SECONDARY.FORMAT,"",SEL.POPUP.POS,SEL.DISABLE,SEL.NUMBER.POPUP,"","","","","","","")
-         CRT CURSOR.OFF:
-
-         POS.SELECT = SEL.POS<1,1>
-         BEGIN CASE
-            CASE CHOICE = "FILE"
-               GOSUB OPEN.MACH.FILE
-               GOSUB GET.NEXT.REF.CODE
-               IF READ.SUCCESS THEN
-                  GOSUB WRITE.REQUEST.DETAILS
-                  IF WRITE.COMPLETE THEN
-                     CALL TPCRT(15,22,'Generating Report. Please wait...','',-4,"N",'','','')
-                     GOSUB BUILD.OUTPUT.LINES
-                     GOSUB INIT.CSV
-                     GOSUB OPEN.CSV
-                     IF NOT(ERR.FLG) THEN
-                        GOSUB WRITE.SUB.HEADING
-                        IF NOT(ERR.FLG) THEN
-                           GOSUB WRITE.CSV
-                           GOSUB CLOSE.CSV
-                           CALL TPCRT(15,22,'Sending email with report. Please wait...','',-4,"N",'','','')
   IF EMAIL.ADDRESS = '' THEN
                               CALL ERR("EMAIL ADDRESS CANNOT BE BLANK","")
                               ERR.FLG = TRUE

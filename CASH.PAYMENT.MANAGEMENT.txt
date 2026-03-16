@@ -1,0 +1,24 @@
+MPN	07742125521	Tue Feb 17 00:00:00 GMT 2026
+MPN	07754110210	Tue Feb 17 00:00:00 GMT 2026
+
+1085
+1086
+1094
+
+07742125521
+MPN	07784521032	Wed Feb 18 00:00:00 GMT 2026
+
+curl --location 'http://netengage:8080/axis2/services/WebService.GetAccountDetails' \
+--data-raw '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:web="http://webservice.CSI.omvia.convergys.com">
+<soapenv:Header/>
+<soapenv:Body>
+<web:GetAccountDetails>
+<web:operatorName>mdsws</web:operatorName>
+<web:operatorPassword>Nostromo@LV-426</web:operatorPassword>
+<web:MSISDN>07784521032</web:MSISDN>
+</web:GetAccountDetails>
+</soapenv:Body>
+</soapenv:Envelope>'
+
+
+131609465	Network Action	connection	Awaiting Network Services	Sun Jan 01 00:00:00 GMT 1899

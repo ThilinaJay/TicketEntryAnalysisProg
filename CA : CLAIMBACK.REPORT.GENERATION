@@ -245,12 +245,7 @@ SET.UP.SELECTION.LINE:
       NEXT.POS = 8
       GOTO.POS = 9
 
-      LOWER.RNG = ((PAGE.NO - 1) * SCREEN.SIZE)+1
-      IF PAGE.NO = LAST.PAGE.NO THEN
-         HIGHER.RNG = DCOUNT(DATA.ARR,AM)
-      END ELSE
-         HIGHER.RNG = LOWER.RNG + SCREEN.SIZE - 1
-      END
+      
 
       SEL.WORDS = "File":VM:"Line":VM:"Change":VM:"Add":VM:"Delete":VM:"Quit":VM:"Prev":VM:"Next":VM:"Goto"
       SEL.ABBRV = "F":VM:"L":VM:"C":VM:"A":VM:"D":VM:"Q":VM:"P":VM:"N":VM:"G"

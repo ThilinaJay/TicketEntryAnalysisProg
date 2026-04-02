@@ -605,29 +605,3 @@ INIT.REST.OF.COMMONS:
       KY.CLASS.SQ = ''
 
       RETURN
-
-*********************************************************************
-************
-FATAL.ERROR:
-************
-
-      CRT CURSOR.ON:
-      VAR = ''
-
-      VAR<1,1> = "V1"
-      VAR<1,2> = PROGRAM.NAME
-      VAR<1,3> = DATE()
-      VAR<1,4> = TIME()
-      VAR<1,5> = LOWER(SYSTEM(9001))
-      VAR<2> = FATAL.ERROR.MSG
-      VAR<-1> = "!"
-
-      DATA VAR
-      CHAIN "SY.FATAL.ERROR"
-
-      RETURN
-
-*********************************************************************
-      INCLUDE INCLUDES TRANS.BOUNDS
-*********************************************************************
-   END

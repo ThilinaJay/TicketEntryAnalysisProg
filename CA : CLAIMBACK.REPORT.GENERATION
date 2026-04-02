@@ -2,22 +2,6 @@
       PROGRAM.NAME = "CLAIMBACK.REPORT.GENERATION"
 
 *********************************************************************
-* Description
-*  A new system which will validate the data entered and then mail will be
-*  sent with the report consisting of the valid details
-*
-*
-* Author       : Sumathy Jaganathan PLC
-* Date Written : 12/04/2011
-*
-*  Job #     Date     Inits Comments
-* ======== ========   ===== ========
-* 14463r23 12/04/2011 SUMAJ Original Version
-* 14463r27 20/06/2011 LMATH Creation of internal claimbacks across machines for national branches
-* 15711r85 21/10/2022 isude Replaced hard coded customer validation with dynamic
-*********************************************************************
-      INCLUDE DG-INCLUDES TCSTANDARD
-      INCLUDE INCLUDES MN.TERMWORK.COMMON
 ***********
 * EQUATES *
 ***********
